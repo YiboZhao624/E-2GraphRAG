@@ -8,8 +8,8 @@ import json
 import os
 import re
 
+from tqdm import tqdm
 from transformers import AutoTokenizer
-
 
 class YBDataLoader:
     '''a general dataloader for lightTAG.'''
@@ -30,7 +30,7 @@ class NovelQALoader(YBDataLoader):
     def __init__(self, 
                  docpath:str = "CollectedBooks", 
                  qapath:str = "CollectedData", 
-                 tokenizer_name:str = "gpt2",
+                 tokenizer:AutoTokenizer = None,
                  chunk_size:int = 512,
                  overlap:int = 128,
                  ) -> None:
@@ -38,22 +38,30 @@ class NovelQALoader(YBDataLoader):
         self.dataset = self.build_dataset(datapath=qapath, bookpath=docpath)
         self.available_books = list(self.dataset.keys())
         self.available_books.sort()
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-        self.dataset = self.chunk_book(self.tokenizer, chunk_size=chunk_size, overlap=overlap)
+        self.tokenizer = tokenizer
+        self.dataset = self._chunk_book(self.tokenizer, chunk_size=chunk_size, overlap=overlap)
 
     def build_dataset(self, datapath:str, bookpath:str):
         '''Build the dataset.'''
         dataset = {}
-        for root, dirs, files in os.walk(bookpath, topdown=True):
-            for directory in dirs:
-                for filename in os.listdir(os.path.join(bookpath, directory)):
-                    with open(os.path.join(bookpath, directory, filename), "r") as infile:
-                        dataset[filename[:-4]] = {}
-                        dataset[filename[:-4]]["book"] = infile.read()
+        print("Loading books...")
+        for filename in os.listdir(bookpath):
+            book_id = filename.split('.')[0]
+            # print(f"Found book: {book_id}")
+            with open(os.path.join(bookpath, filename), "r") as infile:
+                    dataset[book_id] = {}
+                    dataset[book_id]["book"] = infile.read()
+
+        print("Loading QA data...")
         for root, dirs, files in os.walk(datapath, topdown=True):
             for filename in os.listdir(datapath):
+                qa_id = filename.split('.')[0]
+                # print(f"Found QA: {qa_id}")
+                if qa_id not in dataset:
+                    # print(f"Warning: QA file {qa_id} has no corresponding book!")
+                    continue
                 with open(os.path.join(datapath, filename), "r") as infile:
-                    dataset[filename[:-5]]["qa"] = json.loads(infile.read())
+                    dataset[qa_id]["qa"] = json.loads(infile.read())
         return dataset
     
     def __getitem__(self, bid:str):
@@ -64,16 +72,18 @@ class NovelQALoader(YBDataLoader):
         '''Get the length of the dataset.'''
         return len(self.available_books)
 
-    def chunk_book(self, tokenizer, chunk_size:int = 512, overlap:int = 128):
+    def _chunk_book(self, tokenizer, chunk_size:int = 512, overlap:int = 128):
         '''Chunk the book. Save as token ids.'''
-        for bid in self.available_books:
+        for bid in tqdm(self.available_books):
             book = self.dataset[bid]["book"]
             book_chunks = []
             tokens = tokenizer(book, return_tensors="pt")
             stride = chunk_size - overlap
             for i in range(0, len(tokens["input_ids"][0]), stride):
                 end_idx = min(i + chunk_size, len(tokens["input_ids"][0]))
-                book_chunks.append(tokens["input_ids"][0][i:end_idx].tolist())
+                chunk_ids = tokens["input_ids"][0][i:end_idx].tolist()
+                chunk_text = tokenizer.decode(chunk_ids, skip_special_tokens=True)
+                book_chunks.append(chunk_text)
             self.dataset[bid]["book_chunks"] = book_chunks
 
         return self.dataset
