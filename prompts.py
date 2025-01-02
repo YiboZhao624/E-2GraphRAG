@@ -144,3 +144,31 @@ New Text:
 
 Summary:
 """
+
+
+NER_PROMPT = """You are a helpful assistant, you are given a question, please extract the entities from the question. And the extracted entities should be in the format of [entity1, entity2, ...]. There will be three examples:
+
+Example 1:
+Question: Who is Madame Mirliflore?
+
+Entities:
+[Madame Mirliflore]
+
+Example 2:
+Question: What happened between the Tom and the painter?
+
+Entities:
+[Tom, painter]
+
+Example 3:
+Question: What is the dress color of Jimmy when he was working in the factory?
+
+Entities:
+[Jimmy, factory]
+
+Now, please extract the entities from the following question:
+
+Question: {question}
+
+Entities:
+"""
