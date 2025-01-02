@@ -54,7 +54,7 @@ NOVEL_TRIPLETS_PROMPT = \
 """You are a professional information extraction assistant. Please extract relationship triplets from the given text.
 
 Triplet Definition:
-- Triplets can be used to describe the relationship between two entities, or the relationship between an entity and a property.
+- Triplets can be used to describe the relationship between two entities, or the relationship between an entity and a property. Do NOT use the pronoun like "I", "you", "he", "she", "it", "they", "we" etc in the triplets. When the context include the pronoun, please find the noun phrase that the pronoun refers to and replace the pronoun with the noun phrase.
 - Head: Important noun phrases from the text
 - Relation: Concise verb or prepositional phrases describing the relationship
 - Tail: Important noun phrases from the text
