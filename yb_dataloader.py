@@ -44,29 +44,39 @@ class NovelQALoader(YBDataLoader):
     def build_dataset(self, datapath:str, bookpath:str):
         '''Build the dataset.'''
         dataset = {}
-        print("Loading books...")
-        for filename in os.listdir(bookpath):
-            book_id = filename.split('.')[0]
-            # print(f"Found book: {book_id}")
-            with open(os.path.join(bookpath, filename), "r") as infile:
-                    dataset[book_id] = {}
-                    dataset[book_id]["book"] = infile.read()
-
-        print("Loading QA data...")
+        for root, dirs, files in os.walk(bookpath, topdown=True):
+            for directory in dirs:   # Copyright Protected and Public Domain
+                for filename in os.listdir(os.path.join(bookpath, directory)):
+                    with open(os.path.join(bookpath, directory, filename), "r") as infile:
+                        book_id = filename.split('.')[0]
+                        dataset[book_id] = {}
+                        dataset[book_id]["book"] = infile.read()
         for root, dirs, files in os.walk(datapath, topdown=True):
-            for filename in os.listdir(datapath):
-                qa_id = filename.split('.')[0]
-                # print(f"Found QA: {qa_id}")
-                if qa_id not in dataset:
-                    # print(f"Warning: QA file {qa_id} has no corresponding book!")
-                    continue
-                with open(os.path.join(datapath, filename), "r") as infile:
-                    dataset[qa_id]["qa"] = json.loads(infile.read())
+            for directory in dirs:   # Copyright Protected and Public Domain
+                for filename in os.listdir(os.path.join(datapath, directory)):
+                    with open(os.path.join(datapath, directory, filename), "r") as infile:
+                        qa_id = filename.split('.')[0]
+                        dataset[qa_id]["qa"] = json.loads(infile.read())
         return dataset
     
-    def __getitem__(self, bid:str):
+    def __getitem__(self, bid:int):
         '''Get the item by book id.'''
-        return self.dataset[self.available_books[bid]]
+        book_id = self.available_books[bid]
+        book_data = self.dataset[book_id]
+        result = {
+            "book_id": book_id,
+            "book": book_data["book"],
+            "book_chunks": book_data["book_chunks"],
+            "qa": book_data["qa"]
+        }
+        
+        # 添加摘要层如果存在
+        if "summary_layers" in book_data:
+            result["summary_layers"] = book_data["summary_layers"]
+        if "mapping_layers" in book_data:
+            result["mapping_layers"] = book_data["mapping_layers"]
+        
+        return result
     
     def __len__(self):
         '''Get the length of the dataset.'''
@@ -87,6 +97,63 @@ class NovelQALoader(YBDataLoader):
             self.dataset[bid]["book_chunks"] = book_chunks
 
         return self.dataset
+
+    def update_book_summary(self, book_id, depth, summaries, mappings):
+        if "summary_layers" not in self.dataset[self.available_books[book_id]]:
+            self.dataset[self.available_books[book_id]]["summary_layers"] = {}
+            self.dataset[self.available_books[book_id]]["mapping_layers"] = {}
+        
+        self.dataset[self.available_books[book_id]]["summary_layers"][depth] = summaries
+        self.dataset[self.available_books[book_id]]["mapping_layers"][depth] = mappings
+
+    def load_dataset(self, summary_folder:str, extraction_folder:str):
+        '''Load the dataset from the folder.'''
+        for file in os.listdir(summary_folder):
+            with open(os.path.join(summary_folder, file), "r") as infile:
+                book_summary = json.loads(infile.read())
+                book_id = file.split('.')[0]
+                self.dataset[book_id]["summary_layers"] = book_summary["summary_layers"]
+                self.dataset[book_id]["mapping_layers"] = book_summary["mapping_layers"]
+        for file in os.listdir(extraction_folder):
+            with open(os.path.join(extraction_folder, file), "r") as infile:
+                if file.endswith("_node_chunk_map.json"):
+                    book_id = file.split('_')[0]
+                    node_chunk_mapping = json.loads(infile.read())
+                    self.dataset[book_id]["node_chunk_mapping"] = node_chunk_mapping
+                else:
+                    book_id = file.split('_')[0]
+                    extracted_data = json.loads(infile.read())
+                    nodes = []
+                    relations = []
+                    triplets = []
+                    for item in extracted_data:
+                        nodes.extend(item["nodes"])
+                        relations.extend(item["relations"])
+                        triplets.extend(item["triplets"])
+                    self.dataset[book_id]["nodes"] = nodes
+                    self.dataset[book_id]["relations"] = relations
+                    self.dataset[book_id]["triplets"] = triplets
+        return self.dataset
+    
+    def save_res(self, ava_book_id, ans):
+        book_data = self.dataset[self.available_books[ava_book_id]]
+        book_data["answer"] = ans
+        self.dataset[self.available_books[ava_book_id]] = book_data
+        return self.dataset
+    
+    def cal_metrics(self):
+        '''
+        Acc
+        '''
+        question_count = 0
+        correct_count = 0
+        for book_id in self.available_books:
+            book_data = self.dataset[book_id]
+            for i, qa in enumerate(book_data["qa"]):
+                question_count += 1
+                if qa["Gold"] == book_data["answer"][i]:
+                    correct_count += 1
+        return correct_count / question_count
 
 
 class NarrativeQALoader(YBDataLoader):
