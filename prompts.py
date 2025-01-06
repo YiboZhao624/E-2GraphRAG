@@ -51,7 +51,7 @@ Triplets:
 
 
 NOVEL_TRIPLETS_PROMPT = \
-"""You are a professional information extraction assistant. Please extract relationship triplets from the given text.
+"""You are a professional information extraction assistant. Please extract relationship triplets from the given text. Do not output any other information.
 
 Triplet Definition:
 - Triplets can be used to describe the relationship between two entities, or the relationship between an entity and a property. Do NOT use the pronoun like "I", "you", "he", "she", "it", "they", "we" etc in the triplets. When the context include the pronoun, please find the noun phrase that the pronoun refers to and replace the pronoun with the noun phrase.
@@ -97,8 +97,54 @@ Text: {text}
 
 Triplets:"""
 
+# not used.
+NOVEL_TRIPLETS_PROMPT_WO_RELATION = """You are a professional information extraction assistant. Please extract relationship triplets from the given text. Do not output any other information.
 
-SUMMARY_PROMPT = """You are a helpful assistant, you are given a text, please summarize the text. The summary should be a short paragraph that captures the main idea, main events, and main characters of the text. There will be an example:
+Triplet Definition:
+- Triplets can be used to describe the relationship between two entities, or the relationship between an entity and a property. Do NOT use the pronoun like "I", "you", "he", "she", "it", "they", "we" etc in the triplets. When the context include the pronoun, please find the noun phrase that the pronoun refers to and replace the pronoun with the noun phrase.
+- Head: Important noun phrases from the text
+- Relation: Concise verb or prepositional phrases describing the relationship
+- Tail: Important noun phrases from the text
+
+Format Requirements:
+- Each triplet should be written as (head, relation, tail)
+- One triplet per line
+- Entities should be key terms or phrases from the text
+- Relations should accurately reflect the semantic connection
+
+Example 1 - Someones speech:
+Text: "The new smartphone features a high-resolution display. Its battery life lasts for two days, and users praise its camera quality. I have bought such a phone yesterdays." Tomas said.
+
+Triplets:
+(smartphone, features, high-resolution display)
+(battery life, lasts for, two days)
+(users, praise, camera quality)
+(Tomas, bought, smartphone)
+
+Example 2 - Scientific Finding:
+Text: Recent studies show that regular exercise improves cognitive function. Additionally, physical activity reduces the risk of cardiovascular disease and helps maintain healthy body weight.
+
+Triplets:
+(regular exercise, improves, cognitive function)
+(physical activity, reduces risk of, cardiovascular disease)
+(physical activity, helps maintain, healthy body weight)
+
+Example 3 - Event:
+Text: Wendy met a boy in the park, and they went to the beach together. They had a great time. By the end of the day, Wendy asked for the boy's phone number, and finally found out that he was her ex-boyfriend, Tom, who she had not seen for years.
+
+Triplets:
+(Wendy, met, Tom)
+(Wendy, went to the beach with, Tom)
+(Wendy, asked for, Tom's phone number)
+(Wendy, is ex-girlfriend of, Tom)
+
+Now, please extract relationship triplets from the following text:
+
+Text: {text}
+
+Triplets:"""
+
+SUMMARY_PROMPT = """You are a helpful assistant, you are given a text, please summarize the text. The summary should be a short paragraph that captures the main idea, main events, and main characters of the text. You should not include any information that is not in the text. You should only output the summary. There will be an example:
 
 Example - Pride and Prejudice:
 Text: It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.
