@@ -26,7 +26,43 @@ class YBDataLoader:
         self.qapath = qapath
     
 class NovelQALoader(YBDataLoader):
-    '''a dataloader for NovelQA.'''
+    """
+        self.dataset: {
+            book_id: {
+                "book": str,
+                "book_chunks": List[Dict],
+                "qa": List[Dict],
+                "summary_layers": {
+                    depth: List[Dict]
+                },
+                "mapping_layers": {
+                    depth: List[List]
+                }
+            }
+        }
+
+        self.tree_structure: {
+            book_id: {
+                "nodes": {
+                    node_id: {
+                        "text": str,
+                        "level": str,
+                        "type": str,
+                    }
+                },
+                "children": {
+                    node_id: List[str]
+                },
+                "parents": {
+                    node_id: List[str]
+                }
+            }
+        }
+
+    id naming rule:
+        - leaf node: "{book_id}_leaf_{chunk_idx}"
+        - summary node: "{book_id}_depth{depth}_{summary_idx}"
+    """
     def __init__(self, 
                  docpath:str = "CollectedBooks", 
                  qapath:str = "CollectedData", 
@@ -35,11 +71,13 @@ class NovelQALoader(YBDataLoader):
                  overlap:int = 128,
                  ) -> None:
         super().__init__(docpath, qapath)
+        self.tree_structure = {}
         self.dataset = self.build_dataset(datapath=qapath, bookpath=docpath)
         self.available_books = list(self.dataset.keys())
         self.available_books.sort()
         self.tokenizer = tokenizer
         self.dataset = self._chunk_book(self.tokenizer, chunk_size=chunk_size, overlap=overlap)
+        
 
     def build_dataset(self, datapath:str, bookpath:str):
         '''Build the dataset.'''
@@ -83,28 +121,110 @@ class NovelQALoader(YBDataLoader):
         return len(self.available_books)
 
     def _chunk_book(self, tokenizer, chunk_size:int = 512, overlap:int = 128):
-        '''Chunk the book. Save as token ids.'''
+        '''
+        应该明确说明输入输出格式：
+        Returns:
+            dataset: {
+                book_id: {
+                    "book": str,
+                    "book_chunks": List[Dict],
+                    "qa": List[Dict],
+                    ...
+                }
+            }
+        '''
         for bid in tqdm(self.available_books):
             book = self.dataset[bid]["book"]
             book_chunks = []
+            self.tree_structure[bid] = {
+                "nodes": [],
+                "children": [],
+                "parents": []
+            }
             tokens = tokenizer(book, return_tensors="pt")
             stride = chunk_size - overlap
             for i in range(0, len(tokens["input_ids"][0]), stride):
                 end_idx = min(i + chunk_size, len(tokens["input_ids"][0]))
-                chunk_ids = tokens["input_ids"][0][i:end_idx].tolist()
-                chunk_text = tokenizer.decode(chunk_ids, skip_special_tokens=True)
-                book_chunks.append(chunk_text)
+                token_ids = tokens["input_ids"][0][i:end_idx].tolist()
+                chunk_text = tokenizer.decode(token_ids, skip_special_tokens=True)
+                chunk_id = f"{bid}_leaf_{i}"
+                chunk_data = {
+                    "id": chunk_id,
+                    "text": chunk_text,
+                    "type": "leaf"
+                }
+                book_chunks.append(chunk_data)
+                self.tree_structure[bid]["nodes"][chunk_id]={
+                    "text": chunk_text,
+                    "level": "leaf",
+                    "type":"chunk"
+                }
+                self.tree_structure[bid]["children"][chunk_id] = []
+                self.tree_structure[bid]["parents"][chunk_id] = []
             self.dataset[bid]["book_chunks"] = book_chunks
 
         return self.dataset
 
     def update_book_summary(self, book_id, depth, summaries, mappings):
-        if "summary_layers" not in self.dataset[self.available_books[book_id]]:
-            self.dataset[self.available_books[book_id]]["summary_layers"] = {}
-            self.dataset[self.available_books[book_id]]["mapping_layers"] = {}
+        book_key = self.available_books[book_id]
+        if "summary_layers" not in self.dataset[book_key]:
+            self.dataset[book_key]["summary_layers"] = {}
+            self.dataset[book_key]["mapping_layers"] = {}
         
-        self.dataset[self.available_books[book_id]]["summary_layers"][depth] = summaries
-        self.dataset[self.available_books[book_id]]["mapping_layers"][depth] = mappings
+        summary_chunks = []
+        for i, summary in enumerate(summaries):
+            summary_id = f"{book_key}_summary_{depth}_{i}"
+            summary_data = {
+                "id": summary_id,
+                "text": summary,
+                "type": "summary",
+            }
+            summary_chunks.append(summary_data)
+
+            # update the tree structure.
+            self.tree_structure[book_key]["nodes"][summary_id] = {
+                "text": summary,
+                "level": f"depth_{depth}",
+                "type": "summary",
+            }
+            self.tree_structure[book_key]["children"][summary_id] = []
+            self.tree_structure[book_key]["parents"][summary_id] = []
+
+        #update the mapping relations.
+        update_mappings = []
+        for i, mapping in enumerate(mappings):
+            parent_id = f"{book_key}_summary_{depth}_{i}"
+            child_ids = []
+            for child_idx in mapping:
+                if depth == 1:
+                # which means the children is original chunks.
+                    child_id = f"{book_key}_leaf_{child_idx}"
+                else:
+                # which means the children is summary.
+                    child_id = f"{book_key}_summary_{depth-1}_{child_idx}"
+                child_ids.append(child_id)
+
+            # update the parent and children.
+            self.tree_structure[book_key]["children"][parent_id].extend(child_ids)
+            for child_id in child_ids:
+                self.tree_structure[book_key]["parents"][child_id].append(parent_id)
+        update_mappings.append([parent_id, child_ids])
+        
+        self.dataset[book_key]["summary_layers"][depth] = summary_chunks
+        self.dataset[book_key]["mapping_layers"][depth] = update_mappings
+
+    def get_node_info(self, book_id, node_id):
+        '''Get the node info.'''
+        book_key = self.available_books[book_id]
+        return self.tree_structure[book_key]["nodes"].get(node_id, None)
+    
+    def get_node_parents(self, book_id, node_id):
+        book_key = self.available_books[book_id]
+        return self.tree_structure[book_key]["parents"].get(node_id, None)
+    
+    def get_node_children(self, book_id, node_id):
+        book_key = self.available_books[book_id]
+        return self.tree_structure[book_key]["children"].get(node_id, None)
 
     def load_dataset(self, summary_folder:str, extraction_folder:str):
         '''Load the dataset from the folder.'''
