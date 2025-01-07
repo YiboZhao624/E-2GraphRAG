@@ -55,11 +55,11 @@ def sequential(loader, book_id, tokenizer, args, current_depth)->List[str]:
             book_chunk_mapping = []
             # deduplicate.
             for j, chunk_data in enumerate(chunk):
+                c = chunk_data["text"]
                 if j == 0:
                     merged_chunk.append(c)
                 else:
                     # delete the overlap part.
-                    c = chunk_data["text"]
                     c = tokenizer.decode(tokenizer(c, return_tensors="pt")["input_ids"][0][args.overlap:], skip_special_tokens=True)
                     merged_chunk.append(c)
                 book_chunk_mapping.append(j)
