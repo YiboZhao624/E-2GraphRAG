@@ -1,33 +1,41 @@
+import spacy
 from yb_dataloader import NarrativeQALoader, NovelQALoader
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import argparse
+import logging
 
-import nltk
+logger = logging.getLogger("summarize")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
 
 def extract_nouns(text):
-    # download the necessary nltk data.
+    # Load English language model
     try:
-        nltk.data.find('tokenizers/punkt')
-        nltk.data.find('averaged_perceptron_tagger')
-    except LookupError:
-        nltk.download('punkt')
-        nltk.download('averaged_perceptron_tagger')
-
-    # split the text into sentences.
-    sentences = nltk.sent_tokenize(text)
+        nlp = spacy.load('en_core_web_sm')
+    except OSError:
+        logger.info("Downloading spacy model...")
+        spacy.cli.download('en_core_web_sm')
+        nlp = spacy.load('en_core_web_sm')
     
-    # store the noun and its cooccurrence information.
+    # Process the text
+    doc = nlp(text)
+    
+    # Store the noun and its cooccurrence information
     noun_pairs = {}
     all_nouns = set()
     
-    for sentence in sentences:
-        # tokenize the sentence and tag the words.
-        tokens = nltk.word_tokenize(sentence)
-        tagged = nltk.pos_tag(tokens)
-        
-        # extract the nouns in the sentence.
-        sentence_nouns = [word.lower() for word, tag in tagged if tag.startswith('NN')]
+    # Process each sentence
+    for sent in doc.sents:
+        # Extract nouns from the sentence
+        sentence_nouns = [token.text.lower() for token in sent if token.pos_ == "NOUN"]
         all_nouns.update(sentence_nouns)
         
-        # count the cooccurrence of nouns.
+        # Count the cooccurrence of nouns
         for i in range(len(sentence_nouns)):
             for j in range(i+1, len(sentence_nouns)):
                 noun1, noun2 = sorted([sentence_nouns[i], sentence_nouns[j]])
@@ -48,6 +56,34 @@ def get_noun_cooccurrence(text):
         "cooccurrence": sorted_pairs
     }
 
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", type=str, default="narrativeqa",choices = ["narrativeqa", "novelqa"])
+    parser.add_argument("--model_name", type=str, default="")
+
+    args = parser.parse_args()
+    logger.info(args.dataset)
+    logger.info(args.model_name)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    if args.dataset == "narrativeqa":
+        loader = NarrativeQALoader()
+    elif args.dataset == "novelqa":
+        loader = NovelQALoader(docpath="./NovelQA/Books", qapath="./NovelQA/Data", tokenizer=tokenizer, chunk_size=1200,overlap=100)
+
+    for data in loader:
+        book_id = data["book_id"]
+        book = data["book"]
+        book_chunks = data["book_chunks"]
+        qa = data["qa"]
+        for chunk in book_chunks:
+            chunk_text = chunk["text"]
+            nouns, cooccurrence = extract_nouns(chunk_text)
+            logger.info(nouns)
+            logger.info(cooccurrence)
+
+            break
+        break
+
+
 if __name__ == "__main__":
-    text = "The cat sat on the mat. The dog chased the cat. The cat ran away."
-    print(get_noun_cooccurrence(text))
+    main()
