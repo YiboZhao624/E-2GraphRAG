@@ -122,7 +122,6 @@ class NovelQALoader(YBDataLoader):
 
     def _chunk_book(self, tokenizer, chunk_size:int = 512, overlap:int = 128):
         '''
-        应该明确说明输入输出格式：
         Returns:
             dataset: {
                 book_id: {
@@ -137,9 +136,9 @@ class NovelQALoader(YBDataLoader):
             book = self.dataset[bid]["book"]
             book_chunks = []
             self.tree_structure[bid] = {
-                "nodes": [],
-                "children": [],
-                "parents": []
+                "nodes": {},
+                "children": {},
+                "parents": {}
             }
             tokens = tokenizer(book, return_tensors="pt")
             stride = chunk_size - overlap
