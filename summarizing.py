@@ -48,13 +48,16 @@ def sequential(loader, book_id, tokenizer, args, current_depth)->List[str]:
         book_chunks : List[str] = book["book_chunks"]
         merged_book_chunks : List[str] = []
         book_mapping : List[List[int]] = []
+
         for i in range(0, len(book_chunks), merge_num):
             # inside a cluster.
             chunk = book_chunks[i:i+merge_num]
             merged_chunk = []
             book_chunk_mapping = []
+        
             # deduplicate.
             for j, chunk_data in enumerate(chunk):
+                global_chunk_idx = i + j
                 c = chunk_data["text"]
                 if j == 0:
                     merged_chunk.append(c)
@@ -62,24 +65,32 @@ def sequential(loader, book_id, tokenizer, args, current_depth)->List[str]:
                     # delete the overlap part.
                     c = tokenizer.decode(tokenizer(c, return_tensors="pt")["input_ids"][0][args.overlap:], skip_special_tokens=True)
                     merged_chunk.append(c)
-                book_chunk_mapping.append(j)
+                book_chunk_mapping.append(global_chunk_idx)
             merged_text = "".join(merged_chunk)
             # add the cluster to the book.
             merged_book_chunks.append(merged_text)
             book_mapping.append(book_chunk_mapping)
         return merged_book_chunks, book_mapping
+
     else:
         logger.info(f"Sequential summarizing book {book_id} at depth {current_depth}.")
         logger.info(f"book: {book_id}, bid: {loader[book_id]['book_id']}, keys: {loader[book_id].keys()}")
         book = loader[book_id]
         if book.get("summary_layers", None) is None:
             raise ValueError(f"Summary layers not found for book {book_id}.")
+
+        # get the book chunks data, it is a List[Dict]
         book_chunks = book["summary_layers"][current_depth-1]
+        # get the text of each chunk. List[str]
+        book_chunks = [chunk["text"] for chunk in book_chunks]
+
         book_mapping = []
         merged_book_chunks = []
+
         for i in range(0, len(book_chunks), merge_num):
             chunk_text = "".join(book_chunks[i:i+merge_num])
-            book_mapping.append([i, i+merge_num])
+            indices = list(range(i, min(i+merge_num, len(book_chunks))))
+            book_mapping.append(indices)
             merged_book_chunks.append(chunk_text)
         return merged_book_chunks, book_mapping
 
