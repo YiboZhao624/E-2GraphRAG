@@ -69,6 +69,7 @@ class NovelQALoader(YBDataLoader):
                  tokenizer:AutoTokenizer = None,
                  chunk_size:int = 512,
                  overlap:int = 128,
+                 load_summary:bool = False,
                  ) -> None:
         super().__init__(docpath, qapath)
         self.tree_structure = {}
@@ -77,7 +78,9 @@ class NovelQALoader(YBDataLoader):
         self.available_books.sort()
         self.tokenizer = tokenizer
         self.dataset = self._chunk_book(self.tokenizer, chunk_size=chunk_size, overlap=overlap)
-        
+
+        if load_summary:
+            self.load_summary(summary_folder=f"{qapath}/Summary/0107", extraction_folder=f"{qapath}/Extraction/0107")
 
     def build_dataset(self, datapath:str, bookpath:str):
         '''Build the dataset.'''
@@ -142,11 +145,13 @@ class NovelQALoader(YBDataLoader):
             }
             tokens = tokenizer(book, return_tensors="pt")
             stride = chunk_size - overlap
+            chunk_idx = 0
             for i in range(0, len(tokens["input_ids"][0]), stride):
                 end_idx = min(i + chunk_size, len(tokens["input_ids"][0]))
                 token_ids = tokens["input_ids"][0][i:end_idx].tolist()
                 chunk_text = tokenizer.decode(token_ids, skip_special_tokens=True)
-                chunk_id = f"{bid}_leaf_{i}"
+                chunk_id = f"{bid}_leaf_{chunk_idx}"
+                chunk_idx += 1
                 chunk_data = {
                     "id": chunk_id,
                     "text": chunk_text,
@@ -195,7 +200,7 @@ class NovelQALoader(YBDataLoader):
             parent_id = f"{book_key}_summary_{depth}_{i}"
             child_ids = []
             for child_idx in mapping:
-                if depth == 1:
+                if depth == 0:
                 # which means the children is original chunks.
                     child_id = f"{book_key}_leaf_{child_idx}"
                 else:
@@ -207,7 +212,7 @@ class NovelQALoader(YBDataLoader):
             self.tree_structure[book_key]["children"][parent_id].extend(child_ids)
             for child_id in child_ids:
                 self.tree_structure[book_key]["parents"][child_id].append(parent_id)
-        update_mappings.append([parent_id, child_ids])
+            update_mappings.append([parent_id, child_ids])
         
         self.dataset[book_key]["summary_layers"][depth] = summary_chunks
         self.dataset[book_key]["mapping_layers"][depth] = update_mappings
@@ -273,6 +278,23 @@ class NovelQALoader(YBDataLoader):
                 if qa["Gold"] == book_data["answer"][i]:
                     correct_count += 1
         return correct_count / question_count
+
+    def load_summary(self, summary_folder:str, extraction_folder:str):
+        """load the summary and the node chunk mapping."""
+        for file in os.listdir(summary_folder):
+            with open(os.path.join(summary_folder, file), "r") as infile:
+                book_summary = json.loads(infile.read())
+                book_id = file.split('.')[0]
+                self.dataset[book_id]["summary_layers"] = book_summary["summary_layers"]
+                self.dataset[book_id]["mapping_layers"] = book_summary["mapping_layers"]
+        for file in os.listdir(extraction_folder):
+            with open(os.path.join(extraction_folder, file), "r") as infile:
+                if file.endswith("_node_chunk_map.json"):
+                    book_id = file.split('_')[0]
+                    node_chunk_mapping = json.loads(infile.read())
+                    self.dataset[book_id]["node_chunk_mapping"] = node_chunk_mapping
+
+
 
 
 class NarrativeQALoader(YBDataLoader):
