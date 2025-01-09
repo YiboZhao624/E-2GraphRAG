@@ -10,6 +10,26 @@ import re
 
 from tqdm import tqdm
 from transformers import AutoTokenizer
+from typing import Dict, List, Set, Tuple, TypedDict
+
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger("DataLoader")
+
+
+class chunk_index(TypedDict):
+    global_nouns: Set[str]
+    chunk_to_nouns: Dict[int, Set[str]]
+    noun_to_chunks: Dict[str, Set[int]]
+    noun_pairs: Dict[Tuple[str, str], int]
 
 class YBDataLoader:
     '''a general dataloader for lightTAG.'''
@@ -78,10 +98,12 @@ class NovelQALoader(YBDataLoader):
         self.available_books.sort()
         self.tokenizer = tokenizer
         self.dataset = self._chunk_book(self.tokenizer, chunk_size=chunk_size, overlap=overlap)
+        self._index = {key: chunk_index() for key in self.available_books}
 
         if load_summary:
             self.load_summary(summary_folder=f"{qapath}/Summary/0107", extraction_folder=f"{qapath}/Extraction/0107")
 
+       
     def build_dataset(self, datapath:str, bookpath:str):
         '''Build the dataset.'''
         dataset = {}
@@ -289,12 +311,9 @@ class NovelQALoader(YBDataLoader):
                 self.dataset[book_id]["mapping_layers"] = book_summary["mapping_layers"]
         for file in os.listdir(extraction_folder):
             with open(os.path.join(extraction_folder, file), "r") as infile:
-                if file.endswith("_node_chunk_map.json"):
-                    book_id = file.split('_')[0]
-                    node_chunk_mapping = json.loads(infile.read())
-                    self.dataset[book_id]["node_chunk_mapping"] = node_chunk_mapping
-
-
+                book_id = file.split('_')[0]
+                node_chunk_mapping = json.loads(infile.read())
+                self._index[book_id] = node_chunk_mapping
 
 
 class NarrativeQALoader(YBDataLoader):
