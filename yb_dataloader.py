@@ -89,9 +89,10 @@ class NovelQALoader(YBDataLoader):
                  tokenizer:AutoTokenizer = None,
                  chunk_size:int = 512,
                  overlap:int = 128,
-                 load_summary:bool = False,
+                 load_summary_index:bool = False,
                  ) -> None:
         super().__init__(docpath, qapath)
+        self.parent_folder = "/".join(docpath.split("/")[:-1])
         self.tree_structure = {}
         self.dataset = self.build_dataset(datapath=qapath, bookpath=docpath)
         self.available_books = list(self.dataset.keys())
@@ -100,8 +101,8 @@ class NovelQALoader(YBDataLoader):
         self.dataset = self._chunk_book(self.tokenizer, chunk_size=chunk_size, overlap=overlap)
         self._index = {key: chunk_index() for key in self.available_books}
 
-        if load_summary:
-            self.load_summary(summary_folder=f"{qapath}/Summary/0107", extraction_folder=f"{qapath}/Extraction/0107")
+        if load_summary_index:
+            self.load_summary(summary_folder=f"{self.parent_folder}/Summary/0107", extraction_folder=f"{self.parent_folder}/Index/0107")
 
        
     def build_dataset(self, datapath:str, bookpath:str):
@@ -313,8 +314,27 @@ class NovelQALoader(YBDataLoader):
             with open(os.path.join(extraction_folder, file), "r") as infile:
                 book_id = file.split('_')[0]
                 node_chunk_mapping = json.loads(infile.read())
+                node_chunk_mapping["global_nouns"] = set(node_chunk_mapping["global_nouns"])
+                node_chunk_mapping["chunk_to_nouns"] = {k: set(v) for k, v in node_chunk_mapping["chunk_to_nouns"].items()}
+                node_chunk_mapping["noun_to_chunks"] = {k: set(v) for k, v in node_chunk_mapping["noun_to_chunks"].items()}
+                node_chunk_mapping["noun_pairs"] = {
+                    tuple(k.split("<|COMMA|>")): v
+                    for k, v in node_chunk_mapping["noun_pairs"].items()
+                }
                 self._index[book_id] = node_chunk_mapping
 
+    def update_index(self, book_id, index_dict):
+        self._index[book_id] = index_dict
+
+    def save_index(self, book_id, folder:str):
+        assert book_id in self._index, "Book id not found in the index."
+        with open(os.path.join(folder, f"{book_id}_index.json"), "w") as outfile:
+            saving = self._index[book_id]
+            saving["global_nouns"] = list(saving["global_nouns"])
+            saving["noun_to_chunks"] = {k: list(v) for k, v in saving["noun_to_chunks"].items()}
+            saving["chunk_to_nouns"] = {k: list(v) for k, v in saving["chunk_to_nouns"].items()}
+            saving["noun_pairs"] = {f"{k[0]}<|COMMA|>{k[1]}":v for k, v in saving["noun_pairs"].items()}
+            json.dump(saving, outfile, indent=4)
 
 class NarrativeQALoader(YBDataLoader):
     '''a dataloader for NarrativeQA.'''
