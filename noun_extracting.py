@@ -1,8 +1,9 @@
 import spacy
-from yb_dataloader import NarrativeQALoader, NovelQALoader
+from yb_dataloader import NarrativeQALoader, NovelQALoader, chunk_index
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import argparse
 import logging
+from collections import defaultdict
 
 logger = logging.getLogger("summarize")
 logging.basicConfig(
@@ -13,8 +14,8 @@ logging.basicConfig(
     ]
 )
 
-def extract_nouns(text):
     # Load English language model
+def extract_nouns(text):
     try:
         nlp = spacy.load('en_core_web_sm')
     except OSError:
@@ -32,7 +33,8 @@ def extract_nouns(text):
     # Process each sentence
     for sent in doc.sents:
         # Extract nouns from the sentence
-        sentence_nouns = [token.text.lower() for token in sent if token.pos_ == "NOUN"]
+        sentence_nouns = [token.lemma_.lower() for token in sent
+                          if token.pos_ == "NOUN" and token.lemma_.strip()]
         all_nouns.update(sentence_nouns)
         
         # Count the cooccurrence of nouns
@@ -42,24 +44,16 @@ def extract_nouns(text):
                 pair = (noun1, noun2)
                 noun_pairs[pair] = noun_pairs.get(pair, 0) + 1
     
-    return list(all_nouns), noun_pairs
-
-def get_noun_cooccurrence(text):
-    """get the cooccurrence of nouns in the text."""
-    nouns, cooccurrence = extract_nouns(text)
-    
-    # sort the cooccurrence by the frequency.
-    sorted_pairs = sorted(cooccurrence.items(), key=lambda x: x[1], reverse=True)
-    
     return {
-        "nouns": nouns,
-        "cooccurrence": sorted_pairs
+        "nouns": list(all_nouns),
+        "cooccurrence": noun_pairs
     }
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, default="narrativeqa",choices = ["narrativeqa", "novelqa"])
-    parser.add_argument("--model_name", type=str, default="")
+    parser.add_argument("--dataset", type=str, default="novelqa",choices = ["narrativeqa", "novelqa"])
+    parser.add_argument("--model_name", type=str, default="/root/shared_planing/LLM_model/Qwen2.5-14B-Instruct")
 
     args = parser.parse_args()
     logger.info(args.dataset)
@@ -75,15 +69,29 @@ def main():
         book = data["book"]
         book_chunks = data["book_chunks"]
         qa = data["qa"]
+        book_dict : chunk_index = {
+            "global_nouns": set(),
+            "chunk_to_nouns": {},
+            "noun_to_chunks": defaultdict(set),
+            "noun_pairs": {}
+        }
         for chunk in book_chunks:
             chunk_text = chunk["text"]
-            nouns, cooccurrence = extract_nouns(chunk_text)
-            logger.info(nouns)
-            logger.info(cooccurrence)
-
-            break
-        break
-
+            chunk_id = chunk["id"]
+            nouns_info = extract_nouns(chunk_text)
+            nouns = nouns_info["nouns"]
+            cooccurrence = nouns_info["cooccurrence"]
+            
+            # logger.info(nouns)
+            # logger.info(cooccurrence)
+            book_dict["global_nouns"].update(nouns)
+            book_dict["chunk_to_nouns"][chunk_id] = set(nouns)
+            for noun in nouns:
+                book_dict["noun_to_chunks"][noun].add(chunk_id)
+            for pair, count in cooccurrence.items():
+                book_dict["noun_pairs"][pair] = book_dict["noun_pairs"].get(pair, 0) + count
+        loader.update_index(book_id, book_dict)
+        loader.save_index(book_id, f"{loader.parent_folder}/Index")
 
 if __name__ == "__main__":
     main()
