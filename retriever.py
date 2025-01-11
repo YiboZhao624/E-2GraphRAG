@@ -28,11 +28,11 @@ class TreeRetriever:
     For query method, you should input the query and the number of chunks you have located.
     The query method will first find the father node of the chunks and then filter the chunks by the query. Finally, it will return the chunks in list ordered by similarity.
     '''
-    def __init__(self, args, data):
+    def __init__(self, args, dataloader):
         self.model_name = args.embedder_name
         self.model = sentence_transformers.SentenceTransformer(self.model_name)
         self.cache = args.embed_cache
-        self.data = data
+        self.data = dataloader
         if not self.cache_dir:
             self.cache_dir = "./cache"
             logger.warning("Cache directory not specified, using default: ./cache")
@@ -41,43 +41,46 @@ class TreeRetriever:
         self.reset()
 
     def process_data(self):
-        chunks = []
-        ids = []
-        meta_type = []
-
-        for node_type_key in self.data.keys():
-            node_type = node_type_key.split('_nodes')[0]
-            logger.info(f'loading text for {node_type}')
-            for nid in tqdm(self.data[node_type_key]):
-                chunks.append(str(self.data[node_type_key][nid]['features'][self.node_text_keys[node_type][0]]))
-                ids.append(nid)
-                meta_type.append(node_type)
-        return chunks, ids, meta_type
+        books_data = []
+        for book in self.data:
+            book_id = book['id']
+            chunks = []
+            for chunk in book["chunks"]:
+                chunks.append(chunk)
+            books_data.append({
+                "id": book_id,
+                "chunks": chunks
+            })
+        return books_data
 
     def reset(self):
         '''
         Reset the retriever by embedding the documents and storing the embeddings in the cache.
         if the cache is not empty, load the embeddings from the cache.
         else, create the embeddings and store them in the cache.
+        TODO:
+            - add the summary of the book to the cache.
         '''
-        docs, ids, meta_type = self.process_graph()
+        books_data = self.process_data()
         save_model_name = self.model_name.split('/')[-1]
 
-        if self.cache and os.path.isfile(os.path.join(self.cache_dir, f'cache-{save_model_name}.pkl')):
-            embeds, self.doc_lookup, self.doc_type = pickle.load(open(os.path.join(self.cache_dir, f'cache-{save_model_name}.pkl'), 'rb'))
-            assert self.doc_lookup == ids
-            assert self.doc_type == meta_type
-        else:
-            embeds = self._infer(docs)
-            self.doc_lookup = ids
-            self.doc_type = meta_type
-            pickle.dump([embeds, ids, meta_type], open(os.path.join(self.cache_dir, f'cache-{save_model_name}.pkl'), 'wb'))
+        for book in books_data:
+            book_id = book['id']
+            # read the cache book by book.
+            if self.cache and os.path.isfile(os.path.join(self.cache_dir, f'cache-{save_model_name}_{book_id}.pkl')):
+                embeds, self.embeds_lookup = pickle.load(open(os.path.join(self.cache_dir, f'cache-{save_model_name}_{book_id}.pkl'), 'rb'))
+                assert self.embeds_lookup == book_id
+            # no cache, create the cache.
+            else:
+                embeds = self._infer(book['chunks'])
+                self.embeds_lookup = book_id
+                pickle.dump([embeds, book_id], open(os.path.join(self.cache_dir, f'cache-{save_model_name}_{book_id}.pkl'), 'wb'))
 
         self.init_index_and_add(embeds)
 
     def _infer(self, docs):
         '''
-        Infer the embeddings for the documents.
+        Infer the embeddings for the chunks within a book.
         '''
         embeds = self.model.encode(docs,
             batch_size=4,
@@ -123,9 +126,19 @@ class TreeRetriever:
 
         if self.use_gpu:
             self._move_index_to_gpu()
-
+            logger.info("Index moved to GPU")
+        logger.info("Index initialized and embeddings added")
+        
     @classmethod
     def build_embeddings(cls, model, corpus_dataset, args):
         retriever = cls(model, corpus_dataset, args)
         retriever.doc_embedding_inference()
         return retriever
+    
+    def query(self, query, book_id, located_chunks_id, args):
+        # 1. find the father node of the chunks.
+        # 2. calculate the embedding of the query.
+        # 3. calculate the similarity between the query and the chunks.
+        # 4. return the chunks in list ordered by similarity.
+        
+        pass
