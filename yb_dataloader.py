@@ -50,7 +50,11 @@ class NovelQALoader(YBDataLoader):
         self.dataset: {
             book_id: {
                 "book": str,
-                "book_chunks": List[Dict],
+                "book_chunks": List[{
+                    "id": str,
+                    "text": str,
+                    "type": str
+                }],
                 "qa": List[Dict],
                 "summary_layers": {
                     depth: List[Dict]
@@ -102,7 +106,7 @@ class NovelQALoader(YBDataLoader):
         self._index = {key: chunk_index() for key in self.available_books}
 
         if load_summary_index:
-            self.load_summary(summary_folder=f"{self.parent_folder}/Summary/0107", extraction_folder=f"{self.parent_folder}/Index/0107")
+            self.load_summary(summary_folder=f"{self.parent_folder}/Summary/0107", extraction_folder=f"{self.parent_folder}/Index")
 
        
     def build_dataset(self, datapath:str, bookpath:str):
@@ -131,7 +135,8 @@ class NovelQALoader(YBDataLoader):
             "book_id": book_id,
             "book": book_data["book"],
             "book_chunks": book_data["book_chunks"],
-            "qa": book_data["qa"]
+            "qa": book_data["qa"],
+            "index": self._index[book_id]
         }
         
         # 添加摘要层如果存在
@@ -307,7 +312,7 @@ class NovelQALoader(YBDataLoader):
         for file in os.listdir(summary_folder):
             with open(os.path.join(summary_folder, file), "r") as infile:
                 book_summary = json.loads(infile.read())
-                book_id = file.split('.')[0]
+                book_id = file.split('.')[0].split('_')[1]
                 self.dataset[book_id]["summary_layers"] = book_summary["summary_layers"]
                 self.dataset[book_id]["mapping_layers"] = book_summary["mapping_layers"]
         for file in os.listdir(extraction_folder):
