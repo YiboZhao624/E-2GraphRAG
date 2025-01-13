@@ -32,21 +32,241 @@ class chunk_index(TypedDict):
     noun_to_chunks: Dict[str, Set[int]]
     noun_pairs: Dict[Tuple[str, str], int]
 
-class YBDataLoader:
-    '''a general dataloader for lightTAG.'''
-    def __init__(self, 
-                 docpath:str = "CollectedBooks", 
-                 qapath:str = "CollectedData", 
-                 ) -> None:
-        ''' Initialize the dataloader.
-        Args:
-            docpath: path to the documents.
-            qapath: path to the QA data.
-        '''
-        self.docpath = docpath
-        self.qapath = qapath
+class AbstractDataLoader:
+    '''A general dataloader for text data with chunking and hierarchical summary functionality'''
+    def __init__(self) -> None:
+        self.dataset = {}
+        self.available_books = []
+        self.tree_structure = {}
+        self._index = chunk_index() 
+        
+    def __getitem__(self, bid:int):
+        '''Get the item by book id'''
+        book_id = self.available_books[bid]
+        book_data = self.dataset[book_id]
+        result = {
+            "book_id": book_id,
+            "book": book_data["book"],
+            "book_chunks": book_data["book_chunks"],
+            "qa": book_data["qa"],
+            "index": self._index[book_id]   
+        }
+        
+        if "summary_layers" in book_data:
+            result["summary_layers"] = book_data["summary_layers"]
+        if "mapping_layers" in book_data:
+            result["mapping_layers"] = book_data["mapping_layers"]
+            
+        return result
     
-class NovelQALoader(YBDataLoader):
+    def __len__(self):
+        return len(self.available_books)
+
+    def _chunk_book(self, tokenizer:AutoTokenizer, chunk_size:int = 1200, overlap:int = 100):
+        '''Chunk books into smaller pieces with overlap'''
+        for bid in tqdm(self.available_books):
+            book = self.dataset[bid]["book"]
+            book_chunks = []
+            self.tree_structure[bid] = {
+                "nodes": {},
+                "children": {},
+                "parents": {}
+            }
+            tokens = tokenizer(book, return_tensors="pt")
+            stride = chunk_size - overlap
+            chunk_idx = 0
+            
+            for i in range(0, len(tokens["input_ids"][0]), stride):
+                end_idx = min(i + chunk_size, len(tokens["input_ids"][0]))
+                token_ids = tokens["input_ids"][0][i:end_idx].tolist()
+                chunk_text = tokenizer.decode(token_ids, skip_special_tokens=True)
+                chunk_id = f"{bid}_leaf_{chunk_idx}"
+                chunk_idx += 1
+                
+                chunk_data = {
+                    "id": chunk_id,
+                    "text": chunk_text,
+                    "type": "leaf"
+                }
+                book_chunks.append(chunk_data)
+                
+                self.tree_structure[bid]["nodes"][chunk_id] = {
+                    "text": chunk_text,
+                    "level": "leaf",
+                    "type":"chunk"
+                }
+                self.tree_structure[bid]["children"][chunk_id] = []
+                self.tree_structure[bid]["parents"][chunk_id] = []
+                
+            self.dataset[bid]["book_chunks"] = book_chunks
+
+        return self.dataset
+
+    def update_book_summary(self, book_id, depth, summaries, mappings):
+        '''Update book summary and mapping information'''
+        book_key = self.available_books[book_id]
+        if "summary_layers" not in self.dataset[book_key]:
+            self.dataset[book_key]["summary_layers"] = {}
+            self.dataset[book_key]["mapping_layers"] = {}
+        
+        summary_chunks = []
+        for i, summary in enumerate(summaries):
+            summary_id = f"{book_key}_summary_{depth}_{i}"
+            summary_data = {
+                "id": summary_id,
+                "text": summary,
+                "type": "summary",
+            }
+            summary_chunks.append(summary_data)
+
+            self.tree_structure[book_key]["nodes"][summary_id] = {
+                "text": summary,
+                "level": f"depth_{depth}",
+                "type": "summary",
+            }
+            self.tree_structure[book_key]["children"][summary_id] = []
+            self.tree_structure[book_key]["parents"][summary_id] = []
+
+        update_mappings = []
+        for i, mapping in enumerate(mappings):
+            parent_id = f"{book_key}_summary_{depth}_{i}"
+            child_ids = []
+            for child_idx in mapping:
+                child_id = f"{book_key}_{'leaf' if depth == 0 else f'summary_{depth-1}'}_{child_idx}"
+                child_ids.append(child_id)
+
+            self.tree_structure[book_key]["children"][parent_id].extend(child_ids)
+            for child_id in child_ids:
+                self.tree_structure[book_key]["parents"][child_id].append(parent_id)
+            update_mappings.append([parent_id, child_ids])
+        
+        self.dataset[book_key]["summary_layers"][depth] = summary_chunks
+        self.dataset[book_key]["mapping_layers"][depth] = update_mappings
+
+    def get_node_info(self, book_id, node_id):
+        book_key = self.available_books[book_id]
+        return self.tree_structure[book_key]["nodes"].get(node_id, None)
+    
+    def get_node_parents(self, book_id, node_id):
+        book_key = self.available_books[book_id]
+        return self.tree_structure[book_key]["parents"].get(node_id, None)
+    
+    def get_node_children(self, book_id, node_id):
+        book_key = self.available_books[book_id]
+        return self.tree_structure[book_key]["children"].get(node_id, None)
+
+    def update_book_summary(self, book_id, depth, summaries, mappings):
+        book_key = self.available_books[book_id]
+        if "summary_layers" not in self.dataset[book_key]:
+            self.dataset[book_key]["summary_layers"] = {}
+            self.dataset[book_key]["mapping_layers"] = {}
+        
+        summary_chunks = []
+        for i, summary in enumerate(summaries):
+            summary_id = f"{book_key}_summary_{depth}_{i}"
+            summary_data = {
+                "id": summary_id,
+                "text": summary,
+                "type": "summary",
+            }
+            summary_chunks.append(summary_data)
+
+            # update the tree structure.
+            self.tree_structure[book_key]["nodes"][summary_id] = {
+                "text": summary,
+                "level": f"depth_{depth}",
+                "type": "summary",
+            }
+            self.tree_structure[book_key]["children"][summary_id] = []
+            self.tree_structure[book_key]["parents"][summary_id] = []
+
+        #update the mapping relations.
+        update_mappings = []
+        for i, mapping in enumerate(mappings):
+            parent_id = f"{book_key}_summary_{depth}_{i}"
+            child_ids = []
+            for child_idx in mapping:
+                if depth == 0:
+                # which means the children is original chunks.
+                    child_id = f"{book_key}_leaf_{child_idx}"
+                else:
+                # which means the children is summary.
+                    child_id = f"{book_key}_summary_{depth-1}_{child_idx}"
+                child_ids.append(child_id)
+
+            # update the parent and children.
+            self.tree_structure[book_key]["children"][parent_id].extend(child_ids)
+            for child_id in child_ids:
+                self.tree_structure[book_key]["parents"][child_id].append(parent_id)
+            update_mappings.append([parent_id, child_ids])
+        
+        self.dataset[book_key]["summary_layers"][depth] = summary_chunks
+        self.dataset[book_key]["mapping_layers"][depth] = update_mappings
+
+    def load_dataset(self, summary_folder:str, extraction_folder:str):
+        '''Load the dataset from the folder.'''
+        for file in os.listdir(summary_folder):
+            with open(os.path.join(summary_folder, file), "r") as infile:
+                book_summary = json.loads(infile.read())
+                book_id = file.split('.')[0]
+                self.dataset[book_id]["summary_layers"] = book_summary["summary_layers"]
+                self.dataset[book_id]["mapping_layers"] = book_summary["mapping_layers"]
+        for file in os.listdir(extraction_folder):
+            with open(os.path.join(extraction_folder, file), "r") as infile:
+                if file.endswith("_node_chunk_map.json"):
+                    book_id = file.split('_')[0]
+                    node_chunk_mapping = json.loads(infile.read())
+                    self.dataset[book_id]["node_chunk_mapping"] = node_chunk_mapping
+                else:
+                    book_id = file.split('_')[0]
+                    extracted_data = json.loads(infile.read())
+                    nodes = []
+                    relations = []
+                    triplets = []
+                    for item in extracted_data:
+                        nodes.extend(item["nodes"])
+                        relations.extend(item["relations"])
+                        triplets.extend(item["triplets"])
+                    self.dataset[book_id]["nodes"] = nodes
+                    self.dataset[book_id]["relations"] = relations
+                    self.dataset[book_id]["triplets"] = triplets
+        return self.dataset
+    
+    def load_summary(self, summary_folder:str, extraction_folder:str):
+        """load the summary and the node chunk mapping."""
+        for file in os.listdir(summary_folder):
+            with open(os.path.join(summary_folder, file), "r") as infile:
+                book_summary = json.loads(infile.read())
+                book_id = file.split('.')[0].split('_')[1]
+                self.dataset[book_id]["summary_layers"] = book_summary["summary_layers"]
+                self.dataset[book_id]["mapping_layers"] = book_summary["mapping_layers"]
+        for file in os.listdir(extraction_folder):
+            with open(os.path.join(extraction_folder, file), "r") as infile:
+                book_id = file.split('_')[0]
+                node_chunk_mapping = json.loads(infile.read())
+                node_chunk_mapping["global_nouns"] = set(node_chunk_mapping["global_nouns"])
+                node_chunk_mapping["chunk_to_nouns"] = {k: set(v) for k, v in node_chunk_mapping["chunk_to_nouns"].items()}
+                node_chunk_mapping["noun_to_chunks"] = {k: set(v) for k, v in node_chunk_mapping["noun_to_chunks"].items()}
+                node_chunk_mapping["noun_pairs"] = {
+                    tuple(k.split("<|COMMA|>")): v
+                    for k, v in node_chunk_mapping["noun_pairs"].items()
+                }
+                self._index[book_id] = node_chunk_mapping
+
+    def update_index(self, book_id, index_dict):
+        self._index[book_id] = index_dict
+
+    def save_index(self, book_id, folder:str):
+        assert book_id in self._index, "Book id not found in the index."
+        with open(os.path.join(folder, f"{book_id}_index.json"), "w") as outfile:
+            saving = self._index[book_id]
+            saving["global_nouns"] = list(saving["global_nouns"])
+            saving["noun_to_chunks"] = {k: list(v) for k, v in saving["noun_to_chunks"].items()}
+            saving["chunk_to_nouns"] = {k: list(v) for k, v in saving["chunk_to_nouns"].items()}
+            saving["noun_pairs"] = {f"{k[0]}<|COMMA|>{k[1]}":v for k, v in saving["noun_pairs"].items()}
+            json.dump(saving, outfile, indent=4)
+
+class NovelQALoader(AbstractDataLoader):
     """
         self.dataset: {
             book_id: {
@@ -128,170 +348,12 @@ class NovelQALoader(YBDataLoader):
                         dataset[qa_id]["qa"] = json.loads(infile.read())
         return dataset
     
-    def __getitem__(self, bid:int):
-        '''Get the item by book id.'''
-        book_id = self.available_books[bid]
-        book_data = self.dataset[book_id]
-        result = {
-            "book_id": book_id,
-            "book": book_data["book"],
-            "book_chunks": book_data["book_chunks"],
-            "qa": book_data["qa"],
-            "index": self._index[book_id]
-        }
-        
-        # 添加摘要层如果存在
-        if "summary_layers" in book_data:
-            result["summary_layers"] = book_data["summary_layers"]
-        if "mapping_layers" in book_data:
-            result["mapping_layers"] = book_data["mapping_layers"]
-        
-        return result
-    
-    def __len__(self):
-        '''Get the length of the dataset.'''
-        return len(self.available_books)
-
-    def _chunk_book(self, tokenizer, chunk_size:int = 512, overlap:int = 128):
-        '''
-        Returns:
-            dataset: {
-                book_id: {
-                    "book": str,
-                    "book_chunks": List[Dict],
-                    "qa": List[Dict],
-                    ...
-                }
-            }
-        '''
-        for bid in tqdm(self.available_books):
-            book = self.dataset[bid]["book"]
-            book_chunks = []
-            self.tree_structure[bid] = {
-                "nodes": {},
-                "children": {},
-                "parents": {}
-            }
-            tokens = tokenizer(book, return_tensors="pt")
-            stride = chunk_size - overlap
-            chunk_idx = 0
-            for i in range(0, len(tokens["input_ids"][0]), stride):
-                end_idx = min(i + chunk_size, len(tokens["input_ids"][0]))
-                token_ids = tokens["input_ids"][0][i:end_idx].tolist()
-                chunk_text = tokenizer.decode(token_ids, skip_special_tokens=True)
-                chunk_id = f"{bid}_leaf_{chunk_idx}"
-                chunk_idx += 1
-                chunk_data = {
-                    "id": chunk_id,
-                    "text": chunk_text,
-                    "type": "leaf"
-                }
-                book_chunks.append(chunk_data)
-                self.tree_structure[bid]["nodes"][chunk_id]={
-                    "text": chunk_text,
-                    "level": "leaf",
-                    "type":"chunk"
-                }
-                self.tree_structure[bid]["children"][chunk_id] = []
-                self.tree_structure[bid]["parents"][chunk_id] = []
-            self.dataset[bid]["book_chunks"] = book_chunks
-
-        return self.dataset
-
-    def update_book_summary(self, book_id, depth, summaries, mappings):
-        book_key = self.available_books[book_id]
-        if "summary_layers" not in self.dataset[book_key]:
-            self.dataset[book_key]["summary_layers"] = {}
-            self.dataset[book_key]["mapping_layers"] = {}
-        
-        summary_chunks = []
-        for i, summary in enumerate(summaries):
-            summary_id = f"{book_key}_summary_{depth}_{i}"
-            summary_data = {
-                "id": summary_id,
-                "text": summary,
-                "type": "summary",
-            }
-            summary_chunks.append(summary_data)
-
-            # update the tree structure.
-            self.tree_structure[book_key]["nodes"][summary_id] = {
-                "text": summary,
-                "level": f"depth_{depth}",
-                "type": "summary",
-            }
-            self.tree_structure[book_key]["children"][summary_id] = []
-            self.tree_structure[book_key]["parents"][summary_id] = []
-
-        #update the mapping relations.
-        update_mappings = []
-        for i, mapping in enumerate(mappings):
-            parent_id = f"{book_key}_summary_{depth}_{i}"
-            child_ids = []
-            for child_idx in mapping:
-                if depth == 0:
-                # which means the children is original chunks.
-                    child_id = f"{book_key}_leaf_{child_idx}"
-                else:
-                # which means the children is summary.
-                    child_id = f"{book_key}_summary_{depth-1}_{child_idx}"
-                child_ids.append(child_id)
-
-            # update the parent and children.
-            self.tree_structure[book_key]["children"][parent_id].extend(child_ids)
-            for child_id in child_ids:
-                self.tree_structure[book_key]["parents"][child_id].append(parent_id)
-            update_mappings.append([parent_id, child_ids])
-        
-        self.dataset[book_key]["summary_layers"][depth] = summary_chunks
-        self.dataset[book_key]["mapping_layers"][depth] = update_mappings
-
-    def get_node_info(self, book_id, node_id):
-        '''Get the node info.'''
-        book_key = self.available_books[book_id]
-        return self.tree_structure[book_key]["nodes"].get(node_id, None)
-    
-    def get_node_parents(self, book_id, node_id):
-        book_key = self.available_books[book_id]
-        return self.tree_structure[book_key]["parents"].get(node_id, None)
-    
-    def get_node_children(self, book_id, node_id):
-        book_key = self.available_books[book_id]
-        return self.tree_structure[book_key]["children"].get(node_id, None)
-
-    def load_dataset(self, summary_folder:str, extraction_folder:str):
-        '''Load the dataset from the folder.'''
-        for file in os.listdir(summary_folder):
-            with open(os.path.join(summary_folder, file), "r") as infile:
-                book_summary = json.loads(infile.read())
-                book_id = file.split('.')[0]
-                self.dataset[book_id]["summary_layers"] = book_summary["summary_layers"]
-                self.dataset[book_id]["mapping_layers"] = book_summary["mapping_layers"]
-        for file in os.listdir(extraction_folder):
-            with open(os.path.join(extraction_folder, file), "r") as infile:
-                if file.endswith("_node_chunk_map.json"):
-                    book_id = file.split('_')[0]
-                    node_chunk_mapping = json.loads(infile.read())
-                    self.dataset[book_id]["node_chunk_mapping"] = node_chunk_mapping
-                else:
-                    book_id = file.split('_')[0]
-                    extracted_data = json.loads(infile.read())
-                    nodes = []
-                    relations = []
-                    triplets = []
-                    for item in extracted_data:
-                        nodes.extend(item["nodes"])
-                        relations.extend(item["relations"])
-                        triplets.extend(item["triplets"])
-                    self.dataset[book_id]["nodes"] = nodes
-                    self.dataset[book_id]["relations"] = relations
-                    self.dataset[book_id]["triplets"] = triplets
-        return self.dataset
-    
-    def save_res(self, ava_book_id, ans):
+    def save_res(self, ava_book_id, ans, save_folder:str):
         book_data = self.dataset[self.available_books[ava_book_id]]
         book_data["answer"] = ans
         self.dataset[self.available_books[ava_book_id]] = book_data
+        with open(os.path.join(save_folder, f"{self.available_books[ava_book_id]}.json"), "w") as outfile:
+            json.dump(book_data["answer"], outfile, indent=4)
         return self.dataset
     
     def cal_metrics(self):
@@ -308,41 +370,9 @@ class NovelQALoader(YBDataLoader):
                     correct_count += 1
         return correct_count / question_count
 
-    def load_summary(self, summary_folder:str, extraction_folder:str):
-        """load the summary and the node chunk mapping."""
-        for file in os.listdir(summary_folder):
-            with open(os.path.join(summary_folder, file), "r") as infile:
-                book_summary = json.loads(infile.read())
-                book_id = file.split('.')[0].split('_')[1]
-                self.dataset[book_id]["summary_layers"] = book_summary["summary_layers"]
-                self.dataset[book_id]["mapping_layers"] = book_summary["mapping_layers"]
-        for file in os.listdir(extraction_folder):
-            with open(os.path.join(extraction_folder, file), "r") as infile:
-                book_id = file.split('_')[0]
-                node_chunk_mapping = json.loads(infile.read())
-                node_chunk_mapping["global_nouns"] = set(node_chunk_mapping["global_nouns"])
-                node_chunk_mapping["chunk_to_nouns"] = {k: set(v) for k, v in node_chunk_mapping["chunk_to_nouns"].items()}
-                node_chunk_mapping["noun_to_chunks"] = {k: set(v) for k, v in node_chunk_mapping["noun_to_chunks"].items()}
-                node_chunk_mapping["noun_pairs"] = {
-                    tuple(k.split("<|COMMA|>")): v
-                    for k, v in node_chunk_mapping["noun_pairs"].items()
-                }
-                self._index[book_id] = node_chunk_mapping
 
-    def update_index(self, book_id, index_dict):
-        self._index[book_id] = index_dict
 
-    def save_index(self, book_id, folder:str):
-        assert book_id in self._index, "Book id not found in the index."
-        with open(os.path.join(folder, f"{book_id}_index.json"), "w") as outfile:
-            saving = self._index[book_id]
-            saving["global_nouns"] = list(saving["global_nouns"])
-            saving["noun_to_chunks"] = {k: list(v) for k, v in saving["noun_to_chunks"].items()}
-            saving["chunk_to_nouns"] = {k: list(v) for k, v in saving["chunk_to_nouns"].items()}
-            saving["noun_pairs"] = {f"{k[0]}<|COMMA|>{k[1]}":v for k, v in saving["noun_pairs"].items()}
-            json.dump(saving, outfile, indent=4)
-
-class NarrativeQALoader():
+class NarrativeQALoader(AbstractDataLoader):
     """
         self.dataset: {
             book_id: {
@@ -384,12 +414,26 @@ class NarrativeQALoader():
         - leaf node: "{book_id}_leaf_{chunk_idx}"
         - summary node: "{book_id}_depth{depth}_{summary_idx}"
     """
-    def __init__(self) -> None:
+    def __init__(self,
+                 tokenizer:AutoTokenizer = None,
+                 chunk_size:int = 1200,
+                 overlap:int = 100,
+                 load_summary_index:bool = False,
+                 saving_folder:str = "NarrativeQA"
+                 ) -> None:
+        super().__init__()
         # we only use the test set for evaluation.
-        self.dataset, self.available_book_ids = self._format_dataset(load_dataset("narrativeqa")["test"])
+        self.parent_folder = saving_folder
+        self.dataset, self.available_book_ids = self.build_dataset(load_dataset("narrativeqa")["test"])
         self.tree_structure = {}
+        self.dataset = self._chunk_book(tokenizer, chunk_size=chunk_size, overlap=overlap)
+        self._index = {key: chunk_index() for key in self.available_book_ids}
+        if load_summary_index:
+            self.load_summary(summary_folder=f"{self.parent_folder}/Summary/0107", extraction_folder=f"{self.parent_folder}/Index")
+        
 
-    def _format_dataset(self, dataset):
+    
+    def build_dataset(self, dataset):
         '''format the dataset into a unified format.'''
         new_dataset = {}
         available_book_ids = []
@@ -405,59 +449,7 @@ class NarrativeQALoader():
 
         return new_dataset, available_book_ids
 
-    def __getitem__(self, bid:int):
-        res = self.dataset[self.available_book_ids[bid]]
-        #TODO: add the summary layers and the mapping layers.
-        
-        return res
 
-    def __len__(self):
-        return len(self.available_book_ids)
-
-    def _chunk_book(self, tokenizer, chunk_size:int = 1200, overlap:int = 100):
-        '''
-        Returns:
-            dataset: {
-                book_id: {
-                    "book": str,
-                    "book_chunks": List[Dict],
-                    "qa": List[Dict],
-                    ...
-                }
-            }
-        '''
-        for item in self.dataset:
-            book = item["book"]
-            book_chunks = []
-            self.tree_structure[item["book_id"]] = {
-                "nodes": {},
-                "children": {},
-                "parents": {}
-            }
-            tokens = tokenizer(book, return_tensors="pt")
-            stride = chunk_size - overlap
-            chunk_idx = 0
-            for i in range(0, len(tokens["input_ids"][0]), stride):
-                end_idx = min(i + chunk_size, len(tokens["input_ids"][0]))
-                token_ids = tokens["input_ids"][0][i:end_idx].tolist()
-                chunk_text = tokenizer.decode(token_ids, skip_special_tokens=True)
-                chunk_id = f"{item["book_id"]}_leaf_{chunk_idx}"
-                chunk_idx += 1
-                chunk_data = {
-                    "id": chunk_id,
-                    "text": chunk_text,
-                    "type": "leaf"
-                }
-                book_chunks.append(chunk_data)
-                self.tree_structure[item["book_id"]]["nodes"][chunk_id] = {
-                    "text": chunk_text,
-                    "level": "leaf",
-                    "type": "chunk"
-                }
-                self.tree_structure[item["book_id"]]["children"][chunk_id] = []
-                self.tree_structure[item["book_id"]]["parents"][chunk_id] = []
-            item["book_chunks"] = book_chunks
-        return self.dataset
 
 if __name__ == "__main__":
     dataloader = NovelQALoader(docpath="NovelQA/Books", qapath="NovelQA/Data/PublicDomain")
