@@ -36,13 +36,13 @@ class AbstractDataLoader:
     '''A general dataloader for text data with chunking and hierarchical summary functionality'''
     def __init__(self) -> None:
         self.dataset = {}
-        self.available_books = []
+        self.available_book_ids = []
         self.tree_structure = {}
         self._index = chunk_index() 
         
     def __getitem__(self, bid:int):
         '''Get the item by book id'''
-        book_id = self.available_books[bid]
+        book_id = self.available_book_ids[bid]
         book_data = self.dataset[book_id]
         result = {
             "book_id": book_id,
@@ -60,11 +60,11 @@ class AbstractDataLoader:
         return result
     
     def __len__(self):
-        return len(self.available_books)
+        return len(self.available_book_ids)
 
     def _chunk_book(self, tokenizer:AutoTokenizer, chunk_size:int = 1200, overlap:int = 100):
         '''Chunk books into smaller pieces with overlap'''
-        for bid in tqdm(self.available_books):
+        for bid in tqdm(self.available_book_ids):
             book = self.dataset[bid]["book"]
             book_chunks = []
             self.tree_structure[bid] = {
@@ -104,7 +104,7 @@ class AbstractDataLoader:
 
     def update_book_summary(self, book_id, depth, summaries, mappings):
         '''Update book summary and mapping information'''
-        book_key = self.available_books[book_id]
+        book_key = self.available_book_ids[book_id]
         if "summary_layers" not in self.dataset[book_key]:
             self.dataset[book_key]["summary_layers"] = {}
             self.dataset[book_key]["mapping_layers"] = {}
@@ -144,19 +144,19 @@ class AbstractDataLoader:
         self.dataset[book_key]["mapping_layers"][depth] = update_mappings
 
     def get_node_info(self, book_id, node_id):
-        book_key = self.available_books[book_id]
+        book_key = self.available_book_ids[book_id]
         return self.tree_structure[book_key]["nodes"].get(node_id, None)
     
     def get_node_parents(self, book_id, node_id):
-        book_key = self.available_books[book_id]
+        book_key = self.available_book_ids[book_id]
         return self.tree_structure[book_key]["parents"].get(node_id, None)
     
     def get_node_children(self, book_id, node_id):
-        book_key = self.available_books[book_id]
+        book_key = self.available_book_ids[book_id]
         return self.tree_structure[book_key]["children"].get(node_id, None)
 
     def update_book_summary(self, book_id, depth, summaries, mappings):
-        book_key = self.available_books[book_id]
+        book_key = self.available_book_ids[book_id]
         if "summary_layers" not in self.dataset[book_key]:
             self.dataset[book_key]["summary_layers"] = {}
             self.dataset[book_key]["mapping_layers"] = {}
@@ -316,15 +316,15 @@ class NovelQALoader(AbstractDataLoader):
                  overlap:int = 128,
                  load_summary_index:bool = False,
                  ) -> None:
-        super().__init__(docpath, qapath)
+        super().__init__()
         self.parent_folder = "/".join(docpath.split("/")[:-1])
         self.tree_structure = {}
         self.dataset = self.build_dataset(datapath=qapath, bookpath=docpath)
-        self.available_books = list(self.dataset.keys())
-        self.available_books.sort()
+        self.available_book_ids = list(self.dataset.keys())
+        self.available_book_ids.sort()
         self.tokenizer = tokenizer
         self.dataset = self._chunk_book(self.tokenizer, chunk_size=chunk_size, overlap=overlap)
-        self._index = {key: chunk_index() for key in self.available_books}
+        self._index = {key: chunk_index() for key in self.available_book_ids}
 
         if load_summary_index:
             self.load_summary(summary_folder=f"{self.parent_folder}/Summary/0107", extraction_folder=f"{self.parent_folder}/Index")
@@ -349,10 +349,10 @@ class NovelQALoader(AbstractDataLoader):
         return dataset
     
     def save_res(self, ava_book_id, ans, save_folder:str):
-        book_data = self.dataset[self.available_books[ava_book_id]]
+        book_data = self.dataset[self.available_book_ids[ava_book_id]]
         book_data["answer"] = ans
-        self.dataset[self.available_books[ava_book_id]] = book_data
-        with open(os.path.join(save_folder, f"{self.available_books[ava_book_id]}.json"), "w") as outfile:
+        self.dataset[self.available_book_ids[ava_book_id]] = book_data
+        with open(os.path.join(save_folder, f"{self.available_book_ids[ava_book_id]}.json"), "w") as outfile:
             json.dump(book_data["answer"], outfile, indent=4)
         return self.dataset
     
@@ -362,7 +362,7 @@ class NovelQALoader(AbstractDataLoader):
         '''
         question_count = 0
         correct_count = 0
-        for book_id in self.available_books:
+        for book_id in self.available_book_ids:
             book_data = self.dataset[book_id]
             for i, qa in enumerate(book_data["qa"]):
                 question_count += 1
@@ -424,7 +424,8 @@ class NarrativeQALoader(AbstractDataLoader):
         super().__init__()
         # we only use the test set for evaluation.
         self.parent_folder = saving_folder
-        self.dataset, self.available_book_ids = self.build_dataset(load_dataset("narrativeqa")["test"])
+        origin_dataloader = load_dataset("narrativeqa")["test"]
+        self.dataset, self.available_book_ids = self.build_dataset(origin_dataloader)
         self.tree_structure = {}
         self.dataset = self._chunk_book(tokenizer, chunk_size=chunk_size, overlap=overlap)
         self._index = {key: chunk_index() for key in self.available_book_ids}
@@ -436,17 +437,25 @@ class NarrativeQALoader(AbstractDataLoader):
     def build_dataset(self, dataset):
         '''format the dataset into a unified format.'''
         new_dataset = {}
-        available_book_ids = []
-        for item in dataset:
+        available_book_ids = set()
+        # print(dataset[0].keys())
+        for item in tqdm(dataset):
             item_data = {}
             item_data["book_id"] = item["document"]["id"]
-            item_data["book"] = item["document"]["text"]
-            item_data["book_chunks"] = []
-            item_data["summary_provided"] = item["document"]["summary"]["text"]
-            item_data["qa"] = {item["question"]["text"]: item["answers"]}
-            new_dataset[item_data["book_id"]] = item_data
-            available_book_ids.append(item_data["book_id"])
-
+            if item_data["book_id"] not in available_book_ids:
+                available_book_ids.add(item_data["book_id"])
+                item_data["book"] = item["document"]["text"]
+                item_data["book_chunks"] = []
+                item_data["summary_provided"] = item["document"]["summary"]["text"]
+                item_data["qa"] = [{item["question"]["text"]: item["answers"]}]
+                new_dataset[item_data["book_id"]] = item_data
+                available_book_ids.add(item_data["book_id"])
+            else:
+                item_data["qa"] = {item["question"]["text"]: item["answers"]}
+                new_dataset[item_data["book_id"]]["qa"].append(item_data["qa"])
+        available_book_ids = list(available_book_ids)
+        available_book_ids.sort()
+        # print(len(available_book_ids))
         return new_dataset, available_book_ids
 
 
