@@ -9,6 +9,7 @@ import os
 import re
 
 from tqdm import tqdm
+from datasets import load_dataset
 from transformers import AutoTokenizer
 from typing import Dict, List, Set, Tuple, TypedDict
 
@@ -341,19 +342,122 @@ class NovelQALoader(YBDataLoader):
             saving["noun_pairs"] = {f"{k[0]}<|COMMA|>{k[1]}":v for k, v in saving["noun_pairs"].items()}
             json.dump(saving, outfile, indent=4)
 
-class NarrativeQALoader(YBDataLoader):
-    '''a dataloader for NarrativeQA.'''
-    def __init__(self, 
-                 docpath:str = "NarrativeQA/Books", 
-                 qapath:str = "NarrativeQA/Data", 
-                 ) -> None:
-        super().__init__(docpath, qapath)
-        raise NotImplementedError("NarrativeQA is not implemented yet.")
+class NarrativeQALoader():
+    """
+        self.dataset: {
+            book_id: {
+                "book": str,
+                "book_chunks": List[{
+                    "id": str,
+                    "text": str,
+                    "type": str
+                }],
+                "qa": List[Dict],
+                "summary_layers": {
+                    depth: List[Dict]
+                },
+                "mapping_layers": {
+                    depth: List[List]
+                }
+            }
+        }
 
+        self.tree_structure: {
+            book_id: {
+                "nodes": {
+                    node_id: {
+                        "text": str,
+                        "level": str,
+                        "type": str,
+                    }
+                },
+                "children": {
+                    node_id: List[str]
+                },
+                "parents": {
+                    node_id: List[str]
+                }
+            }
+        }
 
+    id naming rule:
+        - leaf node: "{book_id}_leaf_{chunk_idx}"
+        - summary node: "{book_id}_depth{depth}_{summary_idx}"
+    """
+    def __init__(self) -> None:
+        # we only use the test set for evaluation.
+        self.dataset, self.available_book_ids = self._format_dataset(load_dataset("narrativeqa")["test"])
+        self.tree_structure = {}
 
+    def _format_dataset(self, dataset):
+        '''format the dataset into a unified format.'''
+        new_dataset = {}
+        available_book_ids = []
+        for item in dataset:
+            item_data = {}
+            item_data["book_id"] = item["document"]["id"]
+            item_data["book"] = item["document"]["text"]
+            item_data["book_chunks"] = []
+            item_data["summary_provided"] = item["document"]["summary"]["text"]
+            item_data["qa"] = {item["question"]["text"]: item["answers"]}
+            new_dataset[item_data["book_id"]] = item_data
+            available_book_ids.append(item_data["book_id"])
 
+        return new_dataset, available_book_ids
 
+    def __getitem__(self, bid:int):
+        res = self.dataset[self.available_book_ids[bid]]
+        #TODO: add the summary layers and the mapping layers.
+        
+        return res
+
+    def __len__(self):
+        return len(self.available_book_ids)
+
+    def _chunk_book(self, tokenizer, chunk_size:int = 1200, overlap:int = 100):
+        '''
+        Returns:
+            dataset: {
+                book_id: {
+                    "book": str,
+                    "book_chunks": List[Dict],
+                    "qa": List[Dict],
+                    ...
+                }
+            }
+        '''
+        for item in self.dataset:
+            book = item["book"]
+            book_chunks = []
+            self.tree_structure[item["book_id"]] = {
+                "nodes": {},
+                "children": {},
+                "parents": {}
+            }
+            tokens = tokenizer(book, return_tensors="pt")
+            stride = chunk_size - overlap
+            chunk_idx = 0
+            for i in range(0, len(tokens["input_ids"][0]), stride):
+                end_idx = min(i + chunk_size, len(tokens["input_ids"][0]))
+                token_ids = tokens["input_ids"][0][i:end_idx].tolist()
+                chunk_text = tokenizer.decode(token_ids, skip_special_tokens=True)
+                chunk_id = f"{item["book_id"]}_leaf_{chunk_idx}"
+                chunk_idx += 1
+                chunk_data = {
+                    "id": chunk_id,
+                    "text": chunk_text,
+                    "type": "leaf"
+                }
+                book_chunks.append(chunk_data)
+                self.tree_structure[item["book_id"]]["nodes"][chunk_id] = {
+                    "text": chunk_text,
+                    "level": "leaf",
+                    "type": "chunk"
+                }
+                self.tree_structure[item["book_id"]]["children"][chunk_id] = []
+                self.tree_structure[item["book_id"]]["parents"][chunk_id] = []
+            item["book_chunks"] = book_chunks
+        return self.dataset
 
 if __name__ == "__main__":
     dataloader = NovelQALoader(docpath="NovelQA/Books", qapath="NovelQA/Data/PublicDomain")
