@@ -309,17 +309,18 @@ class NovelQALoader(AbstractDataLoader):
         - summary node: "{book_id}_depth{depth}_{summary_idx}"
     """
     def __init__(self, 
-                 docpath:str = "CollectedBooks", 
-                 qapath:str = "CollectedData", 
+                 saving_folder:str,
                  tokenizer:AutoTokenizer = None,
                  chunk_size:int = 1200,
                  overlap:int = 100,
                  load_summary_index:bool = False,
                  ) -> None:
         super().__init__()
-        self.parent_folder = "/".join(docpath.split("/")[:-1])
+        self.parent_folder = saving_folder
+        self.qapath = os.path.join(saving_folder, "Data")
+        self.docpath = os.path.join(saving_folder, "Books")
         self.tree_structure = {}
-        self.dataset = self.build_dataset(datapath=qapath, bookpath=docpath)
+        self.dataset = self.build_dataset(datapath=self.qapath, bookpath=self.docpath)
         self.available_book_ids = list(self.dataset.keys())
         self.available_book_ids.sort()
         self.tokenizer = tokenizer
@@ -330,20 +331,20 @@ class NovelQALoader(AbstractDataLoader):
             self.load_summary(summary_folder=f"{self.parent_folder}/Summary/0107", extraction_folder=f"{self.parent_folder}/Index")
 
        
-    def build_dataset(self, datapath:str, bookpath:str):
+    def build_dataset(self):
         '''Build the dataset.'''
         dataset = {}
-        for root, dirs, files in os.walk(bookpath, topdown=True):
+        for root, dirs, files in os.walk(self.docpath, topdown=True):
             for directory in dirs:   # Copyright Protected and Public Domain
-                for filename in os.listdir(os.path.join(bookpath, directory)):
-                    with open(os.path.join(bookpath, directory, filename), "r") as infile:
+                for filename in os.listdir(os.path.join(self.docpath, directory)):
+                    with open(os.path.join(self.docpath, directory, filename), "r") as infile:
                         book_id = filename.split('.')[0]
                         dataset[book_id] = {}
                         dataset[book_id]["book"] = infile.read()
-        for root, dirs, files in os.walk(datapath, topdown=True):
+        for root, dirs, files in os.walk(self.qapath, topdown=True):
             for directory in dirs:   # Copyright Protected and Public Domain
-                for filename in os.listdir(os.path.join(datapath, directory)):
-                    with open(os.path.join(datapath, directory, filename), "r") as infile:
+                for filename in os.listdir(os.path.join(self.qapath, directory)):
+                    with open(os.path.join(self.qapath, directory, filename), "r") as infile:
                         qa_id = filename.split('.')[0]
                         dataset[qa_id]["qa"] = json.loads(infile.read())
         return dataset
