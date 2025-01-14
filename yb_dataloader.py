@@ -64,7 +64,7 @@ class AbstractDataLoader:
 
     def _chunk_book(self, tokenizer:AutoTokenizer, chunk_size:int = 1200, overlap:int = 100):
         '''Chunk books into smaller pieces with overlap'''
-        for bid in tqdm(self.available_book_ids):
+        for bid in tqdm(self.available_book_ids, desc = "Chunking Books"):
             book = self.dataset[bid]["book"]
             book_chunks = []
             self.tree_structure[bid] = {
@@ -312,8 +312,8 @@ class NovelQALoader(AbstractDataLoader):
                  docpath:str = "CollectedBooks", 
                  qapath:str = "CollectedData", 
                  tokenizer:AutoTokenizer = None,
-                 chunk_size:int = 512,
-                 overlap:int = 128,
+                 chunk_size:int = 1200,
+                 overlap:int = 100,
                  load_summary_index:bool = False,
                  ) -> None:
         super().__init__()
@@ -439,7 +439,7 @@ class NarrativeQALoader(AbstractDataLoader):
         new_dataset = {}
         available_book_ids = set()
         # print(dataset[0].keys())
-        for item in tqdm(dataset):
+        for item in tqdm(dataset, desc = "Building Dataset"):
             item_data = {}
             item_data["book_id"] = item["document"]["id"]
             if item_data["book_id"] not in available_book_ids:
