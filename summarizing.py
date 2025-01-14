@@ -188,7 +188,7 @@ def main():
     if args.dataset == "NovelQA":
         loader = NovelQALoader(docpath="./NovelQA/Books", qapath="./NovelQA/Data", tokenizer=tokenizer, chunk_size=1200, overlap=args.overlap)
     elif args.dataset == "NarrativeQA":
-        loader = NarrativeQALoader(docpath="./NarrativeQA/Books/PublicDomain", qapath="./NarrativeQA/Data/PublicDomain", tokenizer=tokenizer, chunk_size=1200, overlap=args.overlap)
+        loader = NarrativeQALoader(tokenizer=tokenizer, chunk_size=1200, overlap=args.overlap, saving_folder="./NarrativeQA")
     else:
         raise ValueError(f"Dataset {args.dataset} not supported.")
 
