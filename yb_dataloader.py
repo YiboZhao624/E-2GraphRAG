@@ -241,6 +241,11 @@ class AbstractDataLoader:
                 self.dataset[book_id]["summary_layers"] = book_summary["summary_layers"]
                 self.dataset[book_id]["mapping_layers"] = book_summary["mapping_layers"]
 
+                # TODO: after the Narrative QA is done, run compensate.py and use the following code to replace the 250 - 287 lines.
+                # self.tree_structure[book_id] = book_summary["tree_structure"]
+                # self.dataset[book_id]["summary_layers"] = book_summary["summary_layers"]
+
+                # Initialize tree structure if not exists
                 # Initialize tree structure if not exists
             if book_id not in self.tree_structure:
                 self.tree_structure[book_id] = {
@@ -272,17 +277,13 @@ class AbstractDataLoader:
             for depth, mappings in book_summary["mapping_layers"].items():
                 depth = int(depth)
                 for i, mapping in enumerate(mappings):
-                    parent_id = f"{book_id}_summary_{depth}_{i}"
-                    for child_idx in mapping[1]:  # mapping[1] contains child indices
-                        if depth == 1:  # connecting to leaf nodes
-                            child_id = f"{book_id}_leaf_{child_idx}"
-                        else:  # connecting to other summary nodes
-                            child_id = f"{book_id}_summary_{depth-1}_{child_idx}"
-                        
+                    parent_id = mapping[0]
+                    child_ids = mapping[1]
+                    for child_id in child_ids:
                         # Update bidirectional relationships
+                        self.tree_structure[book_id]["children"][parent_id] = self.tree_structure[book_id]["children"].get(parent_id, [])
                         self.tree_structure[book_id]["children"][parent_id].append(child_id)
-                        if child_id not in self.tree_structure[book_id]["parents"]:
-                            self.tree_structure[book_id]["parents"][child_id] = []
+                        self.tree_structure[book_id]["parents"][child_id] = self.tree_structure[book_id]["parents"].get(child_id, [])
                         self.tree_structure[book_id]["parents"][child_id].append(parent_id)
 
         #loading the index.
@@ -376,7 +377,7 @@ class NovelQALoader(AbstractDataLoader):
         self.qapath = os.path.join(saving_folder, "Data")
         self.docpath = os.path.join(saving_folder, "Books")
         self.tree_structure = {}
-        self.dataset = self.build_dataset(datapath=self.qapath, bookpath=self.docpath)
+        self.dataset = self.build_dataset()
         self.available_book_ids = list(self.dataset.keys())
         self.available_book_ids.sort()
         self.tokenizer = tokenizer
