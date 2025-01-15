@@ -195,15 +195,17 @@ def main():
     # execute the recursive summarizing.
     for i in tqdm(range(len(loader)), total=len(loader), desc="Summarizing"):
         final_summaries, all_mappings = recursive_summarize(loader, i, model, tokenizer, args, max_depth=args.max_summary_depth)
+        book_id = loader[i]["book_id"]
+        loader.save_summary(book_id, args.output_path)
 
         # all mapping is useless.
         # save the result to json
-        with open(os.path.join(args.output_path, f"{args.dataset}_{loader[i]['book_id']}_chunksize_summarized.json"), 'w', encoding='utf-8') as f:
-            json.dump({
-                'summary_layers': loader[i]["summary_layers"],
-                'mapping_layers': loader[i]["mapping_layers"],
-                'args': vars(args)
-            }, f, ensure_ascii=False, indent=2)
+        # with open(os.path.join(args.output_path, f"{args.dataset}_{loader[i]['book_id']}_chunksize_summarized.json"), 'w', encoding='utf-8') as f:
+        #     json.dump({
+        #         'summary_layers': loader[i]["summary_layers"],
+        #         'mapping_layers': loader[i]["mapping_layers"],
+        #         'args': vars(args)
+        #     }, f, ensure_ascii=False, indent=2)
 
     # the result has been saved in the loader's properties:
     # loader.summary_layers - the summaries of each layer.
