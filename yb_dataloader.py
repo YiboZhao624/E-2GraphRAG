@@ -240,6 +240,52 @@ class AbstractDataLoader:
                 book_id = file.split('.')[0].split('_')[1]
                 self.dataset[book_id]["summary_layers"] = book_summary["summary_layers"]
                 self.dataset[book_id]["mapping_layers"] = book_summary["mapping_layers"]
+
+                # Initialize tree structure if not exists
+            if book_id not in self.tree_structure:
+                self.tree_structure[book_id] = {
+                    "nodes": {},
+                    "children": {},
+                    "parents": {}
+                }
+            
+            # Update tree structure for each summary layer
+            for depth, summaries in book_summary["summary_layers"].items():
+                depth = int(depth)
+                for i, summary in enumerate(summaries):
+                    summary_id = f"{book_id}_summary_{depth}_{i}"
+                    
+                    # Add node info
+                    self.tree_structure[book_id]["nodes"][summary_id] = {
+                        "text": summary["text"],
+                        "level": f"depth_{depth}",
+                        "type": "summary"
+                    }
+                    
+                    # Initialize parent/child lists
+                    if summary_id not in self.tree_structure[book_id]["children"]:
+                        self.tree_structure[book_id]["children"][summary_id] = []
+                    if summary_id not in self.tree_structure[book_id]["parents"]:
+                        self.tree_structure[book_id]["parents"][summary_id] = []
+            
+            # Update parent-child relationships
+            for depth, mappings in book_summary["mapping_layers"].items():
+                depth = int(depth)
+                for i, mapping in enumerate(mappings):
+                    parent_id = f"{book_id}_summary_{depth}_{i}"
+                    for child_idx in mapping[1]:  # mapping[1] contains child indices
+                        if depth == 1:  # connecting to leaf nodes
+                            child_id = f"{book_id}_leaf_{child_idx}"
+                        else:  # connecting to other summary nodes
+                            child_id = f"{book_id}_summary_{depth-1}_{child_idx}"
+                        
+                        # Update bidirectional relationships
+                        self.tree_structure[book_id]["children"][parent_id].append(child_id)
+                        if child_id not in self.tree_structure[book_id]["parents"]:
+                            self.tree_structure[book_id]["parents"][child_id] = []
+                        self.tree_structure[book_id]["parents"][child_id].append(parent_id)
+
+        #loading the index.
         for file in os.listdir(extraction_folder):
             with open(os.path.join(extraction_folder, file), "r") as infile:
                 book_id = file.split('_')[0]
@@ -265,6 +311,16 @@ class AbstractDataLoader:
             saving["chunk_to_nouns"] = {k: list(v) for k, v in saving["chunk_to_nouns"].items()}
             saving["noun_pairs"] = {f"{k[0]}<|COMMA|>{k[1]}":v for k, v in saving["noun_pairs"].items()}
             json.dump(saving, outfile, indent=4)
+
+    def save_summary(self, book_id, folder:str):
+        book_data = {
+            "tree_structure": self.tree_structure[book_id],
+            "summary_layers": self.dataset[book_id]["summary_layers"],
+        }
+
+        with open(os.path.join(folder, f"{book_id}_summary.json"), "w") as outfile:
+            json.dump(book_data, outfile, indent=4)
+
 
 class NovelQALoader(AbstractDataLoader):
     """
