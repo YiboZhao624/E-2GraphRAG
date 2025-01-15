@@ -448,12 +448,12 @@ class NarrativeQALoader(AbstractDataLoader):
                 item_data["book"] = item["document"]["text"]
                 item_data["book_chunks"] = []
                 item_data["summary_provided"] = item["document"]["summary"]["text"]
-                item_data["qa"] = [{item["question"]["text"]: item["answers"]}]
+                item_data["qa"] = {item["question"]["text"]: item["answers"]}
                 new_dataset[item_data["book_id"]] = item_data
                 available_book_ids.add(item_data["book_id"])
             else:
                 item_data["qa"] = {item["question"]["text"]: item["answers"]}
-                new_dataset[item_data["book_id"]]["qa"].append(item_data["qa"])
+                new_dataset[item_data["book_id"]]["qa"].update(item_data["qa"])
         available_book_ids = list(available_book_ids)
         available_book_ids.sort()
         # print(len(available_book_ids))
