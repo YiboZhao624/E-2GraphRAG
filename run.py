@@ -11,10 +11,12 @@
 import os
 import sys
 import json
+import torch
 import logging 
 import argparse
 from typing import List
 from yb_dataloader import NovelQALoader, NarrativeQALoader
+from retriever import TAGRetriever
 from prompts import QUERY_PROMPT
 from utils import load_LLM
 from tqdm import tqdm
@@ -28,17 +30,47 @@ logging.basicConfig(
     ]
 )
 
-def query_ner():
-    pass
 
-def prepare_question(question:dict) -> str:
-    pass
+def prepare_question(question_id, question,dataset) -> str:
+    if dataset == "NovelQA":
+        question_text = question_id + "\n"
+        options = question["Options"]
+        for option in options:
+            question_text += f"{option}: {options[option]}\n"
+        return question_text        
+    elif dataset == "NarrativeQA":
+        return question_id
+    elif dataset == "Lihuaworld":
+        raise NotImplementedError("Lihuaworld is not supported yet.")
+    else:
+        raise ValueError(f"Dataset {dataset} not supported.")
+
+
+
+def prepare_chunk_supplement(chunk_supplement:List[dict]) -> str:
+    chunk_supplement_text = ""
+    for chunk in chunk_supplement:
+        chunk_supplement_text += chunk['text'] + "\n"
+    return chunk_supplement_text
+
+def prepare_graph_supplement(graph_supplement:List[tuple]) -> str:
+    '''assert the graph_supplement is a list of tuples, each tuple is a triplet (entity1, entity2, relation_score).'''
+    graph_supplement.sort(key=lambda x: x[2], reverse=True)
+    graph_supplement_text = "The important related relation are:"
+    for triplet in graph_supplement:
+        graph_supplement_text += f"{triplet[0]}, {triplet[1]}, related score: {triplet[2]}\n"
+    return graph_supplement_text
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default = "NovelQA", choices = ["NovelQA", "NarrativeQA"])
     parser.add_argument("--doc_dir", type=str, default = "./NovelQA")
     parser.add_argument("--model", type=str, default = "")
+    parser.add_argument("--device", type=str, default = "cuda")
+    parser.add_argument("--embed_model", type=str, default = "BAAI/bge-small-en-v1.5")
+    parser.add_argument("--use_embedding_cache", type=bool, default = True)
+    parser.add_argument("--embedding_cache_path", type=str, default = "./cache")
+    parser.add_argument("--ans_log_folder", type=str, default = "./ans_log")
     args = parser.parse_args()
 
     model, tokenizer = load_LLM(args.model)
@@ -54,6 +86,51 @@ def main():
 
     for book in tqdm(dataloader, desc = f"Evaluating on Dataset {args.dataset}"):
         questions = book["qa"]
+        
+        Retriever = TAGRetriever(dataloader, book["book_id"], 
+                                 args.embed_model, args.device, 
+                                 args.use_embedding_cache, 
+                                 args.embedding_cache_path)
+        
+        ans_log_folder = os.path.join(args.ans_log_folder, f"{args.dataset}")
+        os.makedirs(ans_log_folder, exist_ok=True)
+        ans_log = os.path.join(ans_log_folder, f"{book['book_id']}.json")
+        
+        # answer the questions.
+        for question_id, question in questions.items():
+            question_text = prepare_question(question_id, question, args.dataset)
+            chunk_supplement, graph_supplement = Retriever.query(question_text, book["book_id"])
+            chunk_supplement_text = prepare_chunk_supplement(chunk_supplement)
+            graph_supplement_text = prepare_graph_supplement(graph_supplement)
 
-        for question in questions:
-            question_text = prepare_question(question)
+            inputs = QUERY_PROMPT.format(chunk_supplement = chunk_supplement_text, graph_supplement = graph_supplement_text, question_text = question_text)
+            
+            if args.dataset == "NarrativeQA":
+                inputs = tokenizer(inputs, return_tensors="pt").to(args.device)
+                outputs = model.generate(**inputs, max_new_tokens=100)
+            else:
+                inputs = tokenizer(inputs, return_tensors="pt", padding=True, truncation=True).input_ids.to(model.device)
+                outputs = model(input_ids = inputs).logits[0, -1]
+                probs = torch.nn.functional.softmax(
+                torch.tensor([
+                        outputs[tokenizer("A").input_ids[-1]],
+                        outputs[tokenizer("B").input_ids[-1]],
+                        outputs[tokenizer("C").input_ids[-1]],
+                        outputs[tokenizer("D").input_ids[-1]],
+                    ]).float(),
+                    dim=0,
+                ).detach().cpu().numpy()
+            answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
+            # print(answer)
+            with open(ans_log, "a") as f:
+                f.write(json.dumps({
+                    "question_id": question["question_id"],
+                    "question": question_text,
+                    "answer": answer,
+                    "chunk_supplement": [chunk["id"] for chunk in chunk_supplement],
+                    "graph_supplement": graph_supplement_text,
+                }))
+                f.write("\n")
+
+if __name__ == "__main__":
+    main()
