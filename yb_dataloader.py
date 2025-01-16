@@ -294,10 +294,10 @@ class AbstractDataLoader:
                 node_chunk_mapping["global_nouns"] = set(node_chunk_mapping["global_nouns"])
                 node_chunk_mapping["chunk_to_nouns"] = {k: set(v) for k, v in node_chunk_mapping["chunk_to_nouns"].items()}
                 node_chunk_mapping["noun_to_chunks"] = {k: set(v) for k, v in node_chunk_mapping["noun_to_chunks"].items()}
-                node_chunk_mapping["noun_pairs"] = {
-                    tuple(k.split("<|COMMA|>")): v
+                node_chunk_mapping["noun_pairs"] = [
+                    tuple(k.split("<|COMMA|>").append(v))
                     for k, v in node_chunk_mapping["noun_pairs"].items()
-                }
+                ]
                 self._index[book_id] = node_chunk_mapping
 
     def update_index(self, book_id, index_dict):
