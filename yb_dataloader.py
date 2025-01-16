@@ -11,6 +11,7 @@ import re
 from tqdm import tqdm
 from datasets import load_dataset
 from transformers import AutoTokenizer
+from graphutils import build_graph
 from typing import Dict, List, Set, Tuple, TypedDict
 
 import logging
@@ -299,6 +300,7 @@ class AbstractDataLoader:
                     for k, v in node_chunk_mapping["noun_pairs"].items()
                 ]
                 self._index[book_id] = node_chunk_mapping
+                self._graph[book_id] = self._build_graph(book_id)
 
     def update_index(self, book_id, index_dict):
         self._index[book_id] = index_dict
@@ -322,6 +324,11 @@ class AbstractDataLoader:
         with open(os.path.join(folder, f"{book_id}_summary.json"), "w") as outfile:
             json.dump(book_data, outfile, indent=4)
 
+    def _build_graph(self, book_id):
+        triplets = self._index[book_id]["noun_pairs"]
+        G = build_graph(triplets)
+        return G
+    
 
 class NovelQALoader(AbstractDataLoader):
     """
