@@ -65,7 +65,7 @@ def main():
     elif args.dataset == "novelqa":
         loader = NovelQALoader(saving_folder="./NovelQA", tokenizer=tokenizer, chunk_size=1200,overlap=100)
 
-    for data in tqdm(loader, desc="Extracting Nouns"):
+    for data in tqdm(loader, desc="Extracting Nouns", ncols=100):
         book_id = data["book_id"]
         book = data["book"]
         book_chunks = data["book_chunks"]
