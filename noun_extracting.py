@@ -91,7 +91,7 @@ def main():
                 book_dict["noun_to_chunks"][noun].add(chunk_id)
             for pair, count in cooccurrence.items():
                 book_dict["noun_pairs"][pair] = book_dict["noun_pairs"].get(pair, 0) + count
-        book_dict["noun_pairs"] = [tuple(pair[0], pair[1], count) for pair, count in book_dict["noun_pairs"].items()]
+        book_dict["noun_pairs"] = [(pair[0], pair[1], count) for pair, count in book_dict["noun_pairs"].items()]
         book_dict["noun_pairs"], book_dict["node_name_mapping"] = merge_entities(book_dict["noun_pairs"])
         loader.update_index(book_id, book_dict)
         loader.save_index(book_id, f"{loader.parent_folder}/New_Index")
