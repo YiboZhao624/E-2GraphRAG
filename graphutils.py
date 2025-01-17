@@ -37,7 +37,7 @@ def multi_shortest_path(G:nx.Graph, entities:List[str]) -> List[List[str]]:
         paths.append(path)
     return paths
 
-def merge_entities(triplets:List[Tuple[str, str, int]]) -> List[Tuple[str, str, int]]:
+def merge_entities(triplets:List[Tuple[str, str, int]]) -> Tuple[List[Tuple[str, str, int]], dict]:
     '''
     merge the entities into the graph using sklearn clustering
     '''
