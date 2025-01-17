@@ -64,16 +64,19 @@ def merge_entities(triplets:List[Tuple[str, str, int]]) -> Tuple[List[Tuple[str,
 
     clusters = {}
     for node, label in zip(nodes, cluster_labels):
-        if label != -1:
-            if label not in clusters:
-                clusters[label] = []
-            clusters[label].append(node)
+        if label not in clusters:
+            clusters[label] = []
+        clusters[label].append(node)
     
     node_name_mapping = {}
     for label, members in clusters.items():
-        rep = min(members)
-        for member in members:
-            node_name_mapping[member] = rep
+        if label == -1:
+            for member in members:
+                node_name_mapping[member] = member
+        else:
+            rep = max(members, key=len)
+            for member in members:
+                node_name_mapping[member] = rep
 
     merged_triplets = []
     for s, t, w in triplets:
