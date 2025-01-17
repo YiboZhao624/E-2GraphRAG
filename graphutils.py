@@ -57,7 +57,7 @@ def merge_entities(triplets:List[Tuple[str, str, int]]) -> Tuple[List[Tuple[str,
         node_embeddings.extend(batch_embeddings.tolist())
     
     # Convert embeddings to numpy array
-    node_embeddings = np.array([emb[0] for emb in node_embeddings])
+    node_embeddings = np.array(node_embeddings)
             
     clustering = DBSCAN(eps=0.1, min_samples=1, metric='cosine')
     cluster_labels = clustering.fit_predict(node_embeddings)
