@@ -1,10 +1,11 @@
 import spacy
 from yb_dataloader import NarrativeQALoader, NovelQALoader, chunk_index
 from graphutils import merge_entities
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
 import argparse
 import logging
 from collections import defaultdict
+from tqdm import tqdm
 
 logger = logging.getLogger("summarize")
 logging.basicConfig(
@@ -15,7 +16,6 @@ logging.basicConfig(
     ]
 )
 
-    # Load English language model
 def extract_nouns(text):
     try:
         nlp = spacy.load('en_core_web_sm')
@@ -61,11 +61,11 @@ def main():
     logger.info(args.model_name)
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     if args.dataset == "narrativeqa":
-        loader = NarrativeQALoader()
+        loader = NarrativeQALoader(saving_folder="./NarrativeQA", tokenizer=tokenizer, chunk_size=1200,overlap=100)
     elif args.dataset == "novelqa":
-        loader = NovelQALoader(docpath="./NovelQA/Books", qapath="./NovelQA/Data", tokenizer=tokenizer, chunk_size=1200,overlap=100)
+        loader = NovelQALoader(saving_folder="./NovelQA", tokenizer=tokenizer, chunk_size=1200,overlap=100)
 
-    for data in loader:
+    for data in tqdm(loader, desc="Extracting Nouns"):
         book_id = data["book_id"]
         book = data["book"]
         book_chunks = data["book_chunks"]
@@ -94,7 +94,7 @@ def main():
         book_dict["noun_pairs"] = [tuple(pair[0], pair[1], count) for pair, count in book_dict["noun_pairs"].items()]
         book_dict["noun_pairs"], book_dict["node_name_mapping"] = merge_entities(book_dict["noun_pairs"])
         loader.update_index(book_id, book_dict)
-        loader.save_index(book_id, f"{loader.parent_folder}/Index")
+        loader.save_index(book_id, f"{loader.parent_folder}/New_Index")
 
 if __name__ == "__main__":
     main()
