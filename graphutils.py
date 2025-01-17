@@ -42,7 +42,7 @@ def merge_entities(triplets:List[Tuple[str, str, int]]) -> Tuple[List[Tuple[str,
     merge the entities into the graph using sklearn clustering
     '''
     import transformers
-    model = transformers.AutoModel.from_pretrained("bert-base-uncased")
+    model = transformers.AutoModel.from_pretrained("bert-base-uncased").eval()
     tokenizer = transformers.AutoTokenizer.from_pretrained("bert-base-uncased")
     nodes = set([i[0] for i in triplets] + [i[1] for i in triplets])
     nodes = list(nodes)
