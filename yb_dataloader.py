@@ -11,7 +11,7 @@ import re
 from tqdm import tqdm
 from datasets import load_dataset
 from transformers import AutoTokenizer
-from graphutils import build_graph
+from graphutils import build_graph, merge_entities
 from typing import Dict, List, Set, Tuple, TypedDict
 
 import logging
@@ -39,8 +39,8 @@ class AbstractDataLoader:
         self.dataset = {}
         self.available_book_ids = []
         self.tree_structure = {}
-        self._index = chunk_index() 
-        
+        self._index = chunk_index()
+        self.graph = {}
     def __getitem__(self, bid:int):
         '''Get the item by book id'''
         book_id = self.available_book_ids[bid]
@@ -299,8 +299,10 @@ class AbstractDataLoader:
                     tuple(k.split("<|COMMA|>").append(v))
                     for k, v in node_chunk_mapping["noun_pairs"].items()
                 ]
+                
                 self._index[book_id] = node_chunk_mapping
-                self._graph[book_id] = self._build_graph(book_id)
+                # assume the entities are already merged.
+                self.graph[book_id] = self._build_graph(book_id)
 
     def update_index(self, book_id, index_dict):
         self._index[book_id] = index_dict
@@ -312,7 +314,7 @@ class AbstractDataLoader:
             saving["global_nouns"] = list(saving["global_nouns"])
             saving["noun_to_chunks"] = {k: list(v) for k, v in saving["noun_to_chunks"].items()}
             saving["chunk_to_nouns"] = {k: list(v) for k, v in saving["chunk_to_nouns"].items()}
-            saving["noun_pairs"] = {f"{k[0]}<|COMMA|>{k[1]}":v for k, v in saving["noun_pairs"].items()}
+            saving["noun_pairs"] = {f"{k[0]}<|COMMA|>{k[1]}":k[2] for k in saving["noun_pairs"]}
             json.dump(saving, outfile, indent=4)
 
     def save_summary(self, book_id, folder:str):
@@ -522,6 +524,31 @@ class NarrativeQALoader(AbstractDataLoader):
         available_book_ids.sort()
         # print(len(available_book_ids))
         return new_dataset, available_book_ids
+
+class LihuaWorldLoader(AbstractDataLoader):
+    def __init__(self,
+                 tokenizer:AutoTokenizer = None,
+                 chunk_size:int = 1200,
+                 overlap:int = 100,
+                 load_summary_index:bool = False,
+                 saving_folder:str = "./LihuaWorld" ):
+        super().__init__()
+        self.parent_folder = saving_folder
+        self.docfolder = os.path.join(saving_folder, "LiHua-World")
+        self.qapath = os.path.join(saving_folder, "query_set.json")
+        self.dataset = self.build_dataset()
+        self.available_book_ids = list(self.dataset.keys())
+        self.available_book_ids.sort()
+        self.dataset = self._chunk_book(tokenizer, chunk_size=chunk_size, overlap=overlap)
+        self._index = {key: chunk_index() for key in self.available_book_ids}
+        if load_summary_index:
+            self.load_summary(summary_folder=f"{self.parent_folder}/Summary/0107", extraction_folder=f"{self.parent_folder}/Index")
+
+    def build_dataset(self):
+        with open(self.qapath, "r") as infile:
+            questions = json.loads(infile.read())
+        
+        #TODO: how to load the dataset?
 
 
 
