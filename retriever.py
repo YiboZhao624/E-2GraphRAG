@@ -7,6 +7,7 @@ import os
 import faiss
 import pickle
 from utils import extract_nouns
+from graphutils import multi_shortest_path
 
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,8 @@ class TAGRetriever:
         self.model.to(device)
         self.model.eval()
         self.data = dataloader.dataset[book_id]
+        self.graph = dataloader.graph[book_id]
+        # self.graph has already been a networkx graph. it is processed in the dataloader.
         self.tree_structure = dataloader.tree_structure[book_id]
         self.book_id = book_id
         self.cache_dir = embedding_cache_path
@@ -45,7 +48,7 @@ class TAGRetriever:
             self.cache_dir = f"./cache/{self.book_id}"
             logger.warning(f"Cache directory not specified, using default: {self.cache_dir}")
         self.id_to_index = {}
-        
+
         self.reset()
 
     def reset(self):
@@ -53,8 +56,6 @@ class TAGRetriever:
         Reset the retriever by embedding the documents and storing the embeddings in the cache.
         if the cache is not empty, load the embeddings from the cache.
         else, create the embeddings and store them in the cache.
-        TODO:
-            - add the summary of the book to the cache.
         '''
         save_model_name = self.model_name.split('/')[-1]
         cache_file = os.path.join(self.cache_dir, f'cache-{save_model_name}_{self.book_id}.pkl')
@@ -158,11 +159,40 @@ class TAGRetriever:
                     
         return distances[0], result_ids        
     
-    def graph_query(self, entities, book_id):
+    def graph_query(self, entities):
         # find the shortest path between the entities.
         # return the path in List[tuple(entity, entity, count)].
         # count is the number of cooccurrences between the two entities.
-        pass
+        paths = multi_shortest_path(self.graph, entities)
+        return paths
+    
+    def find_chunks(self, paths):
+        # 1. simply find the chunks related to the nodes in the path.
+        res_chunks = set()
+        for path in paths:
+            res_chunk = set()
+            if len(path) <= 2:
+                for node in path:
+                    if node in self.tree_structure[self.book_id]["nodes"]:
+                        res_chunk.add(self.tree_structure[self.book_id]["nodes"][node])
+            if len(path) > 2:
+                # A -> B -> C
+                # (A ∩ B) ∪ (B ∩ C)
+                for i in range(len(path) - 1):
+                    node1, node2 = path[i], path[i+1]
+
+                    chunks1 = set()
+                    chunks2 = set()
+                    for node in node1:
+                        if node in self.tree_structure[self.book_id]["nodes"]:
+                            chunks1.add(self.tree_structure[self.book_id]["nodes"][node])
+                    for node in node2:
+                        if node in self.tree_structure[self.book_id]["nodes"]:
+                            chunks2.add(self.tree_structure[self.book_id]["nodes"][node])
+                    res_chunk.update(chunks1 & chunks2)
+            res_chunks.update(res_chunk)
+        res_chunks = [chunk["id"] for chunk in res_chunks]
+        return res_chunks
     
     def query(self, query, book_id):
         # 1. NER the query, find the entities in the query.
@@ -174,14 +204,14 @@ class TAGRetriever:
         question = query.split("\n")[0]
         entities:list = extract_nouns(question)
         # step 2.
-        path = self.graph_query(entities, book_id)
+        paths = self.graph_query(entities)
         # step 3.
         query_embed = self.model.encode(question, convert_to_numpy=True)
         # step 4.
-
-
-    @classmethod
-    def build_embeddings(cls, model, corpus_dataset, args):
-        retriever = cls(model, corpus_dataset, args)
-        retriever.doc_embedding_inference()
-        return retriever
+        # multiple paths/ long path -> (A ∩ B)∪(B ∩ C) if a——>b——>c
+        chunk_ids = self.find_chunks(paths)
+        # step 5. subset query.
+        distances, indices = self.query_subset(query_embed, chunk_ids, 10)
+        # step 6. return the chunks in list ordered by similarity.
+        res_chunks = [self.data["book_chunks"][idx] for idx in indices]
+        return distances, indices, res_chunks
