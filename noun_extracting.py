@@ -33,16 +33,30 @@ def extract_nouns(text):
     
     # Process each sentence
     for sent in doc.sents:
-        # Extract nouns from the sentence
-        sentence_nouns = [token.lemma_.lower() for token in sent
-                          if token.pos_ == "NOUN" and token.lemma_.strip()]
-        all_nouns.update(sentence_nouns)
+        sentence_terms = []
         
-        # Count the cooccurrence of nouns
-        for i in range(len(sentence_nouns)):
-            for j in range(i+1, len(sentence_nouns)):
-                noun1, noun2 = sorted([sentence_nouns[i], sentence_nouns[j]])
-                pair = (noun1, noun2)
+        ent_positions = set()
+        for ent in sent.ents:
+            if ent.label_ in ['PERSON', 'ORG', 'GPE']:
+                sentence_terms.append(ent.text)
+                for token in ent:
+                    ent_positions.add(token.i)
+        
+        for token in sent:
+            if token.i in ent_positions:
+                continue
+            if token.pos_ == "NOUN" and token.lemma_.strip():
+                sentence_terms.append(token.lemma_.lower())
+            elif token.pos_ == "PROPN" and token.text.strip():
+                sentence_terms.append(token.text)
+        
+        all_nouns.update(sentence_terms)
+        
+        # Count the cooccurrence of terms
+        for i in range(len(sentence_terms)):
+            for j in range(i+1, len(sentence_terms)):
+                term1, term2 = sorted([sentence_terms[i], sentence_terms[j]])
+                pair = (term1, term2)
                 noun_pairs[pair] = noun_pairs.get(pair, 0) + 1
     
     return {
