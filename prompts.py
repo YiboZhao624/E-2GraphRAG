@@ -218,3 +218,63 @@ Question: {question}
 
 Entities:
 """
+
+QA_PROMPT_RAPTOR = """You are a helpful assistant, you are given a question, please answer the question. The answer should be a short paragraph that captures the main idea, main events, and main characters of the question. You should not include any information that is not in the question. You should only output the answer. There will be an example:
+
+Example - character relationship:
+Question: What is the relationship between the Steve and the painter?
+Evidence: 
+    1. "Steve took off his coat slowly and watched his bride, Evan, as she walked towards him."
+    2. "Evan open the door, a painter came in. Evan lead the painter to the room and said: 'This is my brother, he is a painter.'"
+
+Answer: Steve is the husband of Evan, and the painter is the brother of Evan.
+
+Example - count times:
+Question: How many times did the painter meet Steve?
+Evidence: 
+    1. "Evan open the door, a painter came in. Evan lead the painter to the room and said: 'This is my brother, he is a painter.' Steve greeted the painter and kept doing his work."
+    2. "The painter was painting the wall, and he was painting the ceiling."
+
+Answer: The painter met Steve once.
+
+Now, please answer the following question:
+
+Question: {question}
+Evidence: {evidence}
+
+Answer:
+"""
+
+
+QA_PROMPT = """You are a helpful assistant, you are given a question, please answer the question. The answer should be a short paragraph that captures the main idea, main events, and main characters of the question. You should not include any information that is not related to the question. You should only output the answer. There will be two examples:
+
+Example - character relationship:
+Question: What is the relationship between the Steve and the painter?
+
+Evidence: 
+    1. "Steve took off his coat slowly and watched his bride, Evan, as she walked towards him."
+    2. "Evan open the door, a painter came in. Evan lead the painter to the room and said: 'This is my brother, he is a painter.'"
+
+Important Entities: [Steve, Evan, painter]
+
+Answer: Steve is the husband of Evan, and the painter is the brother of Evan.
+
+Example - count times:
+Question: How many times did the painter meet Steve?
+Evidence: 
+    1. "Evan open the door, a painter came in. Evan lead the painter to the room and said: 'This is my brother, he is a painter.' Steve greeted the painter and kept doing his work."
+    2. "The painter was painting the wall, and he was painting the ceiling."
+
+Important Entities: [painter, Steve]
+
+Answer: The painter met Steve once.
+
+Now, please answer the following question:
+
+Question: {question}
+Evidence: 
+    {evidence}
+
+Important Entities: {important_entities}
+
+Answer: """
