@@ -10,7 +10,7 @@ from utils import extract_nouns
 from graphutils import multi_shortest_path
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("TAGRetriever")
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -60,17 +60,19 @@ class TAGRetriever:
         save_model_name = self.model_name.split('/')[-1]
         cache_file = os.path.join(self.cache_dir, f'cache-{save_model_name}_{self.book_id}.pkl')
 
-        if self.cache and os.path.isfile(cache_file):
+        if self.cache_dir and os.path.isfile(cache_file):
             embeds, self.id_to_index = pickle.load(open(cache_file, "rb"))
         else:
             text_to_encode = []
             chunk_ids = []
 
+            logger.info("Loading chunks")
             for chunk in self.data["book_chunks"]:
                 text_to_encode.append(chunk["text"])
                 chunk_ids.append(chunk["id"])
 
             if "summary_layers" in self.data:
+                logger.info("Loading summaries")
                 for depth, summaries in self.data["summary_layers"].items():
                     for summary in summaries:
                         text_to_encode.append(summary["text"])
@@ -78,8 +80,9 @@ class TAGRetriever:
 
             embeds = self._infer(text_to_encode)
             self.id_to_index = {chunk_id: i for i, chunk_id in enumerate(chunk_ids)}
-
-            if self.cache:
+            logger.info("Embeddings inferred")
+            if self.cache_dir:
+                logger.info("Saving embeddings to cache")
                 os.makedirs(self.cache_dir, exist_ok=True)
                 pickle.dump([embeds, self.id_to_index], open(cache_file, "wb"))
 
@@ -89,8 +92,9 @@ class TAGRetriever:
         '''
         Infer the embeddings for the chunks within a book.
         '''
+        logger.info("Inferring embeddings")
         embeds = self.model.encode(docs,
-            batch_size=4,
+            batch_size=32,
             show_progress_bar=True,
             convert_to_numpy=True
         )
@@ -100,6 +104,7 @@ class TAGRetriever:
         '''
         Initialize a cpu index with fixed dimensions.
         '''
+        logger.info("Initializing FAISS index")
         self.index = None
         cpu_index = faiss.IndexFlatIP(dim)
         self.index = cpu_index
@@ -205,6 +210,11 @@ class TAGRetriever:
         entities:list = extract_nouns(question)
         # step 2.
         paths = self.graph_query(entities)
+        related_entities = set()
+        for path in paths:
+            for node in path:
+                related_entities.add(node)
+        related_entities = list(related_entities)
         # step 3.
         query_embed = self.model.encode(question, convert_to_numpy=True)
         # step 4.
@@ -214,4 +224,6 @@ class TAGRetriever:
         distances, indices = self.query_subset(query_embed, chunk_ids, 10)
         # step 6. return the chunks in list ordered by similarity.
         res_chunks = [self.data["book_chunks"][idx] for idx in indices]
-        return distances, indices, res_chunks
+        res_chunks = sorted(res_chunks, key=lambda x: distances[indices.index(self.id_to_index[x["id"]])])
+
+        return res_chunks, related_entities
