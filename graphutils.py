@@ -11,6 +11,14 @@ from typing import List, Tuple
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from sklearn.cluster import DBSCAN
+from logging import getLogger
+import logging
+
+logger = getLogger("graphutils")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 def build_graph(triplets:List[Tuple[str, str, int]]) -> nx.Graph:
     '''
@@ -25,7 +33,11 @@ def get_shortest_path(G:nx.Graph, start:str, end:str) -> List[str]:
     '''
     get the shortest path between start and end.
     '''
-    return nx.shortest_path(G, start, end, weight='weight')
+    try:
+        return nx.shortest_path(G, start, end, weight='weight')
+    except nx.NodeNotFound:
+        logger.warning(f"NodeNotFound: {start} or {end}")
+        return []
 
 def multi_shortest_path(G:nx.Graph, entities:List[str]) -> List[List[str]]:
     '''
