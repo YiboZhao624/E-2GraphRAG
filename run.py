@@ -14,10 +14,11 @@ import json
 import torch
 import logging 
 import argparse
+import numpy as np
 from typing import List
 from yb_dataloader import NovelQALoader, NarrativeQALoader
 from retriever import TAGRetriever
-from prompts import QUERY_PROMPT
+from prompts import QA_PROMPT
 from utils import load_LLM
 from tqdm import tqdm
 
@@ -49,16 +50,19 @@ def prepare_question(question_id, question,dataset) -> str:
 
 def prepare_chunk_supplement(chunk_supplement:List[dict]) -> str:
     chunk_supplement_text = ""
-    for chunk in chunk_supplement:
-        chunk_supplement_text += chunk['text'] + "\n"
+    for i, chunk in enumerate(chunk_supplement):
+        chunk_supplement_text += f"{i+1}. {chunk['text']}\n"
     return chunk_supplement_text
 
 def prepare_graph_supplement(graph_supplement:List[tuple]) -> str:
     '''assert the graph_supplement is a list of tuples, each tuple is a triplet (entity1, entity2, relation_score).'''
-    graph_supplement.sort(key=lambda x: x[2], reverse=True)
-    graph_supplement_text = "The important related relation are:"
-    for triplet in graph_supplement:
-        graph_supplement_text += f"{triplet[0]}, {triplet[1]}, related score: {triplet[2]}\n"
+    # graph_supplement.sort(key=lambda x: x[2], reverse=True)
+    # graph_supplement_text = "The important related relation are:"
+    # for triplet in graph_supplement:
+    #     graph_supplement_text += f"{triplet[0]}, {triplet[1]}, related score: {triplet[2]}\n"
+    graph_supplement_text = "The important related entities are: "
+    for entity in graph_supplement:
+        graph_supplement_text += f"{entity}, "
     return graph_supplement_text
 
 def main():
@@ -67,8 +71,7 @@ def main():
     parser.add_argument("--doc_dir", type=str, default = "./NovelQA")
     parser.add_argument("--model", type=str, default = "")
     parser.add_argument("--device", type=str, default = "cuda")
-    parser.add_argument("--embed_model", type=str, default = "BAAI/bge-small-en-v1.5")
-    parser.add_argument("--use_embedding_cache", type=bool, default = True)
+    parser.add_argument("--embed_model", type=str, default = "BAAI/bge-m3")
     parser.add_argument("--embedding_cache_path", type=str, default = "./cache")
     parser.add_argument("--ans_log_folder", type=str, default = "./ans_log")
     args = parser.parse_args()
@@ -87,10 +90,7 @@ def main():
     for book in tqdm(dataloader, desc = f"Evaluating on Dataset {args.dataset}"):
         questions = book["qa"]
         
-        Retriever = TAGRetriever(dataloader, book["book_id"], 
-                                 args.embed_model, args.device, 
-                                 args.use_embedding_cache, 
-                                 args.embedding_cache_path)
+        Retriever = TAGRetriever(dataloader, book["book_id"], args.embed_model, args.device, args.embedding_cache_path)
         
         ans_log_folder = os.path.join(args.ans_log_folder, f"{args.dataset}")
         os.makedirs(ans_log_folder, exist_ok=True)
@@ -103,11 +103,12 @@ def main():
             chunk_supplement_text = prepare_chunk_supplement(chunk_supplement)
             graph_supplement_text = prepare_graph_supplement(graph_supplement)
 
-            inputs = QUERY_PROMPT.format(chunk_supplement = chunk_supplement_text, graph_supplement = graph_supplement_text, question_text = question_text)
+            inputs = QA_PROMPT.format(evidence = chunk_supplement_text, important_entities = graph_supplement_text, question = question_text)
             
             if args.dataset == "NarrativeQA":
                 inputs = tokenizer(inputs, return_tensors="pt").to(args.device)
                 outputs = model.generate(**inputs, max_new_tokens=100)
+                answer = tokenizer.decode(outputs[0], skip_special_tokens=True)[len(inputs):]
             else:
                 inputs = tokenizer(inputs, return_tensors="pt", padding=True, truncation=True).input_ids.to(model.device)
                 outputs = model(input_ids = inputs).logits[0, -1]
@@ -120,7 +121,7 @@ def main():
                     ]).float(),
                     dim=0,
                 ).detach().cpu().numpy()
-            answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                answer = ["A", "B", "C", "D"][np.argmax(probs)]
             # print(answer)
             with open(ans_log, "a") as f:
                 f.write(json.dumps({
