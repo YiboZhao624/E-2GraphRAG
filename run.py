@@ -20,6 +20,7 @@ from yb_dataloader import NovelQALoader, NarrativeQALoader
 from retriever import TAGRetriever
 from prompts import QA_PROMPT
 from utils import load_LLM
+from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
 logger = logging.getLogger("run")
@@ -79,6 +80,9 @@ def main():
     model, tokenizer = load_LLM(args.model)
     model.eval()
     model.to(args.device)
+    logger.info(f"Model loaded: {args.model}")
+    embedding_model = SentenceTransformer(args.embed_model)
+    embedding_model.eval()
 
     if args.dataset == "NovelQA":
         dataloader = NovelQALoader(saving_folder=args.doc_dir, tokenizer=tokenizer, load_summary_index=True)
@@ -90,7 +94,7 @@ def main():
     for book in tqdm(dataloader, desc = f"Evaluating on Dataset {args.dataset}"):
         questions = book["qa"]
         
-        Retriever = TAGRetriever(dataloader, book["book_id"], args.embed_model, args.device, args.embedding_cache_path)
+        Retriever = TAGRetriever(dataloader, book["book_id"], embedding_model, args.embed_model, args.device, args.embedding_cache_path)
         
         ans_log_folder = os.path.join(args.ans_log_folder, f"{args.dataset}")
         os.makedirs(ans_log_folder, exist_ok=True)
