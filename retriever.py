@@ -33,11 +33,11 @@ class TAGRetriever:
     For query method, you should input the query and the number of chunks you have located.
     The query method will first find the father node of the chunks and then filter the chunks by the query. Finally, it will return the chunks in list ordered by similarity.
     '''
-    def __init__(self, dataloader:AbstractDataLoader, book_id, embedder_name, device, embedding_cache_path = None):
-        self.model_name = embedder_name
-        self.model = SentenceTransformer(self.model_name)
+    def __init__(self, dataloader:AbstractDataLoader, book_id, embedder_model, embed_model_name, device, embedding_cache_path = None):
+        self.model = embedder_model
         self.model.to(device)
         self.model.eval()
+        self.embed_model_name = embed_model_name
         self.data = dataloader.dataset[book_id]
         self.graph = dataloader.graph[book_id]
         # self.graph has already been a networkx graph. it is processed in the dataloader.
@@ -57,7 +57,7 @@ class TAGRetriever:
         if the cache is not empty, load the embeddings from the cache.
         else, create the embeddings and store them in the cache.
         '''
-        save_model_name = self.model_name.split('/')[-1]
+        save_model_name = self.embed_model_name.split('/')[-1]
         cache_file = os.path.join(self.cache_dir, f'cache-{save_model_name}_{self.book_id}.pkl')
 
         if self.cache_dir and os.path.isfile(cache_file):
@@ -136,9 +136,9 @@ class TAGRetriever:
         self._initialize_faiss_index(dim)
         self.index.add(embeds)
         
-        if self.use_gpu:
-            self._move_index_to_gpu()
-            logger.info("Index moved to GPU")
+        # if self.use_gpu:
+        #     self._move_index_to_gpu()
+        #     logger.info("Index moved to GPU")
         logger.info("Index initialized and embeddings added")
 
     def query_subset(self, query_embed, node_ids, k):
