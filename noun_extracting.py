@@ -69,17 +69,21 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="novelqa",choices = ["narrativeqa", "novelqa"])
     parser.add_argument("--model_name", type=str, default="/root/shared_planing/LLM_model/Qwen2.5-14B-Instruct")
+    parser.add_argument("--resume", type=int, default=17)
 
     args = parser.parse_args()
     logger.info(args.dataset)
     logger.info(args.model_name)
+    resume = args.resume
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     if args.dataset == "narrativeqa":
         loader = NarrativeQALoader(saving_folder="./NarrativeQA", tokenizer=tokenizer, chunk_size=1200,overlap=100)
     elif args.dataset == "novelqa":
         loader = NovelQALoader(saving_folder="./NovelQA", tokenizer=tokenizer, chunk_size=1200,overlap=100)
 
-    for data in tqdm(loader, desc="Extracting Nouns", ncols=100):
+    for i, data in enumerate(tqdm(loader, desc="Extracting Nouns", ncols=100)):
+        if i < resume:
+            continue
         book_id = data["book_id"]
         book = data["book"]
         book_chunks = data["book_chunks"]
