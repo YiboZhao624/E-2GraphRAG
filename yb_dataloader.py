@@ -296,7 +296,7 @@ class AbstractDataLoader:
                 node_chunk_mapping["chunk_to_nouns"] = {k: set(v) for k, v in node_chunk_mapping["chunk_to_nouns"].items()}
                 node_chunk_mapping["noun_to_chunks"] = {k: set(v) for k, v in node_chunk_mapping["noun_to_chunks"].items()}
                 node_chunk_mapping["noun_pairs"] = [
-                    tuple(k.split("<|COMMA|>").append(v))
+                    (k.split("<|COMMA|>")[0], k.split("<|COMMA|>")[1], v)
                     for k, v in node_chunk_mapping["noun_pairs"].items()
                 ]
                 
@@ -394,7 +394,7 @@ class NovelQALoader(AbstractDataLoader):
         self._index = {key: chunk_index() for key in self.available_book_ids}
 
         if load_summary_index:
-            self.load_summary(summary_folder=f"{self.parent_folder}/Summary/0107", extraction_folder=f"{self.parent_folder}/Index")
+            self.load_summary(summary_folder=f"{self.parent_folder}/Summary/0107", extraction_folder=f"{self.parent_folder}/New_Index")
 
        
     def build_dataset(self):
