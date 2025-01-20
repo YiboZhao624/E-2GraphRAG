@@ -35,12 +35,27 @@ logging.basicConfig(
 
 def prepare_question(question_id, question,dataset) -> str:
     if dataset == "NovelQA":
-        question_text = question_id + "\n"
+        '''
+        NovelQA:
+        question_id: Q0764
+        question: What is the name of the main character?
+        Options:
+            A: John
+            B: Jane
+            C: Jim
+            D: Jill
+        '''
+        question_text = question["Question"] + "\n"
         options = question["Options"]
         for option in options:
             question_text += f"{option}: {options[option]}\n"
         return question_text        
     elif dataset == "NarrativeQA":
+        '''
+        NarrativeQA:
+        question_id: What is the name of the main character?
+        value: answer of the question.
+        '''
         return question_id
     elif dataset == "Lihuaworld":
         raise NotImplementedError("Lihuaworld is not supported yet.")
@@ -103,7 +118,7 @@ def main():
         # answer the questions.
         for question_id, question in questions.items():
             question_text = prepare_question(question_id, question, args.dataset)
-            chunk_supplement, graph_supplement = Retriever.query(question_text, book["book_id"])
+            chunk_supplement, graph_supplement, entities = Retriever.query(question_text, book["book_id"])
             chunk_supplement_text = prepare_chunk_supplement(chunk_supplement)
             graph_supplement_text = prepare_graph_supplement(graph_supplement)
 
@@ -132,6 +147,7 @@ def main():
                     "question_id": question["question_id"],
                     "question": question_text,
                     "answer": answer,
+                    "entities in query": entities,
                     "chunk_supplement": [chunk["id"] for chunk in chunk_supplement],
                     "graph_supplement": graph_supplement_text,
                 }))
