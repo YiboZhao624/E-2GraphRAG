@@ -42,12 +42,18 @@ class TAGRetriever:
         self.graph = dataloader.graph[book_id]
         # self.graph has already been a networkx graph. it is processed in the dataloader.
         self.tree_structure = dataloader.tree_structure[book_id]
+        self._index = dataloader._index[book_id]
         self.book_id = book_id
         self.cache_dir = embedding_cache_path
         if not embedding_cache_path:
             self.cache_dir = f"./cache/{self.book_id}"
             logger.warning(f"Cache directory not specified, using default: {self.cache_dir}")
         self.id_to_index = {}
+        self.chunk_id_to_chunk = {
+            chunk["id"]: chunk 
+            for chunk in self.data["book_chunks"]
+        }
+        self.index_to_id = {}
 
         self.reset()
 
@@ -61,7 +67,7 @@ class TAGRetriever:
         cache_file = os.path.join(self.cache_dir, f'cache-{save_model_name}_{self.book_id}.pkl')
 
         if self.cache_dir and os.path.isfile(cache_file):
-            embeds, self.id_to_index = pickle.load(open(cache_file, "rb"))
+            embeds, self.id_to_index, self.index_to_id = pickle.load(open(cache_file, "rb"))
         else:
             text_to_encode = []
             chunk_ids = []
@@ -81,10 +87,11 @@ class TAGRetriever:
             embeds = self._infer(text_to_encode)
             self.id_to_index = {chunk_id: i for i, chunk_id in enumerate(chunk_ids)}
             logger.info("Embeddings inferred")
+            self.index_to_id = {i: chunk_id for chunk_id, i in self.id_to_index.items()}
             if self.cache_dir:
                 logger.info("Saving embeddings to cache")
                 os.makedirs(self.cache_dir, exist_ok=True)
-                pickle.dump([embeds, self.id_to_index], open(cache_file, "wb"))
+                pickle.dump([embeds, self.id_to_index, self.index_to_id], open(cache_file, "wb"))
 
         self.init_index_and_add(embeds)
 
@@ -145,24 +152,34 @@ class TAGRetriever:
         '''
         Query the subset of the index.
         '''
+        # 获取所有有效索引
         valid_indices = [self.id_to_index[node_id] for node_id in node_ids]
         valid_indices = np.array(valid_indices)
-
-        id_selector = faiss.IDSelectorBatch(len(valid_indices), faiss.swig_ptr(valid_indices))
-
-        distances, indices = self.index.search_with_selector(
-            query_embed.reshape(1,-1),
-            k,
-            id_selector
-        )
+        
+        # 对整个索引进行搜索
+        distances, indices = self.index.search(query_embed.reshape(1,-1), len(self.id_to_index))
+        distances = distances[0]
+        indices = indices[0]
+        
+        # 过滤出只在 valid_indices 中的结果
+        filtered_results = []
+        filtered_distances = []
+        for d, idx in zip(distances, indices):
+            if idx in valid_indices:
+                filtered_results.append(idx)
+                filtered_distances.append(d)
+                if len(filtered_results) == k:
+                    break
+        
+        # 将索引转换回原始的 node_ids
         result_ids = []
-        for idx in indices[0]:
+        for idx in filtered_results:
             for node_id, index in self.id_to_index.items():
                 if index == idx:
                     result_ids.append(node_id)
                     break
-                    
-        return distances[0], result_ids        
+                
+        return np.array(filtered_distances), result_ids
     
     def graph_query(self, entities):
         # find the shortest path between the entities.
@@ -178,26 +195,30 @@ class TAGRetriever:
             res_chunk = set()
             if len(path) <= 2:
                 for node in path:
-                    if node in self.tree_structure[self.book_id]["nodes"]:
-                        res_chunk.add(self.tree_structure[self.book_id]["nodes"][node])
+                    if node in self._index["global_nouns"]:
+                        res_chunk.update(self._index["noun_to_chunks"][node])
             if len(path) > 2:
                 # A -> B -> C
                 # (A ∩ B) ∪ (B ∩ C)
                 for i in range(len(path) - 1):
                     node1, node2 = path[i], path[i+1]
-
-                    chunks1 = set()
-                    chunks2 = set()
-                    for node in node1:
-                        if node in self.tree_structure[self.book_id]["nodes"]:
-                            chunks1.add(self.tree_structure[self.book_id]["nodes"][node])
-                    for node in node2:
-                        if node in self.tree_structure[self.book_id]["nodes"]:
-                            chunks2.add(self.tree_structure[self.book_id]["nodes"][node])
-                    res_chunk.update(chunks1 & chunks2)
+                    if node1 in self._index["global_nouns"]:
+                        chunks1 = self._index["noun_to_chunks"][node1]
+                    else:
+                        logger.info(f"Node: {node1} not in global_nouns")
+                    if node2 in self._index["global_nouns"]:
+                        chunks2 = self._index["noun_to_chunks"][node2]
+                    else:
+                        logger.info(f"Node: {node2} not in global_nouns")
+                    res_chunk.update(chunks1 | chunks2)
             res_chunks.update(res_chunk)
-        res_chunks = [chunk["id"] for chunk in res_chunks]
+        res_chunks = list(res_chunks)
         return res_chunks
+    
+
+    def query_all(self, query_embed, k):
+        distances, indices = self.index.search(query_embed.reshape(1,-1), k)
+        return distances, indices
     
     def query(self, query, book_id):
         # 1. NER the query, find the entities in the query.
@@ -207,7 +228,9 @@ class TAGRetriever:
         # 5. calculate the similarity between the query and the chunks.
         # 6. return the chunks in list ordered by similarity.
         question = query.split("\n")[0]
-        entities:list = extract_nouns(question)
+        entities:list = extract_nouns(question)["nouns"]
+        logger.info(f"Query text: {question}")
+        logger.info(f"Extracted entities: {entities}")
         # step 2.
         paths = self.graph_query(entities)
         related_entities = set()
@@ -215,15 +238,32 @@ class TAGRetriever:
             for node in path:
                 related_entities.add(node)
         related_entities = list(related_entities)
+        logger.info(f"Related entities: {related_entities}")
         # step 3.
         query_embed = self.model.encode(question, convert_to_numpy=True)
         # step 4.
         # multiple paths/ long path -> (A ∩ B)∪(B ∩ C) if a——>b——>c
         chunk_ids = self.find_chunks(paths)
+        logger.info(f"Chunk ids count: {len(chunk_ids)}")
         # step 5. subset query.
-        distances, indices = self.query_subset(query_embed, chunk_ids, 10)
-        # step 6. return the chunks in list ordered by similarity.
-        res_chunks = [self.data["book_chunks"][idx] for idx in indices]
-        res_chunks = sorted(res_chunks, key=lambda x: distances[indices.index(self.id_to_index[x["id"]])])
+        if len(chunk_ids) == 0:
+            distances, indices = self.query_all(query_embed, 10)
+            distances = distances[0]
+            indices = indices[0]
+            print("distances", distances)
+            print("indices", indices)
+            print("index_to_id", self.index_to_id)
+            print("id_to_index", self.id_to_index)
+            chunk_ids = [self.index_to_id[idx] for idx in indices]
+            res_chunks = [self.chunk_id_to_chunk[chunk_id] for chunk_id in chunk_ids]
+        else:
+            logger.info(f"Query subset with chunk ids: {chunk_ids}")
+            distances, indices = self.query_subset(query_embed, chunk_ids, 10)
+            # 修复: 直接使用返回的 indices (它已经是 chunk_id 列表)
+            res_chunks = [self.chunk_id_to_chunk[chunk_id] for chunk_id in indices]
+        
+        # 按相似度排序
+        chunk_id_to_distance = {chunk_id: distances[i] for i, chunk_id in enumerate(indices)}
+        res_chunks = sorted(res_chunks, key=lambda x: chunk_id_to_distance[x["id"]], reverse=True)
 
-        return res_chunks, related_entities
+        return res_chunks, related_entities, entities
