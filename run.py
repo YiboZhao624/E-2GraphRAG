@@ -86,6 +86,7 @@ def main():
     parser.add_argument("--dataset", type=str, default = "NovelQA", choices = ["NovelQA", "NarrativeQA"])
     parser.add_argument("--doc_dir", type=str, default = "./NovelQA")
     parser.add_argument("--model", type=str, default = "")
+    parser.add_argument("--embedder_device", type=str, default = "cuda")
     parser.add_argument("--device", type=str, default = "cuda")
     parser.add_argument("--embed_model", type=str, default = "BAAI/bge-m3")
     parser.add_argument("--embedding_cache_path", type=str, default = "./cache")
@@ -98,7 +99,7 @@ def main():
     logger.info(f"Model loaded: {args.model}")
     embedding_model = SentenceTransformer(args.embed_model)
     embedding_model.eval()
-
+    embedding_model.to(args.embedder_device)
     if args.dataset == "NovelQA":
         dataloader = NovelQALoader(saving_folder=args.doc_dir, tokenizer=tokenizer, load_summary_index=True)
     elif args.dataset == "NarrativeQA":
@@ -109,7 +110,7 @@ def main():
     for book in tqdm(dataloader, desc = f"Evaluating on Dataset {args.dataset}"):
         questions = book["qa"]
         
-        Retriever = TAGRetriever(dataloader, book["book_id"], embedding_model, args.embed_model, args.device, args.embedding_cache_path)
+        Retriever = TAGRetriever(dataloader, book["book_id"], embedding_model, args.embed_model, args.embedder_device, args.embedding_cache_path)
         
         ans_log_folder = os.path.join(args.ans_log_folder, f"{args.dataset}")
         os.makedirs(ans_log_folder, exist_ok=True)
