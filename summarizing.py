@@ -177,6 +177,7 @@ def main():
     parser.add_argument("--max_summary_depth", type=int, default=5)
     parser.add_argument("--merge_num", type=int, default=5)
     parser.add_argument("--chunk_size", type=int, default=1200)
+    parser.add_argument("--resume", type=int, default=0)
     args = parser.parse_args()
 
     #load LLM
@@ -193,7 +194,7 @@ def main():
         raise ValueError(f"Dataset {args.dataset} not supported.")
 
     # execute the recursive summarizing.
-    for i in tqdm(range(len(loader)), total=len(loader), desc="Summarizing"):
+    for i in tqdm(range(args.resume, len(loader)), total=len(loader)-args.resume, desc="Summarizing"):
         final_summaries, all_mappings = recursive_summarize(loader, i, model, tokenizer, args, max_depth=args.max_summary_depth)
         book_id = loader[i]["book_id"]
         loader.save_summary(book_id, args.output_path)
