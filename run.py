@@ -21,6 +21,7 @@ from retriever import TAGRetriever
 from prompts import QA_PROMPT
 from utils import load_LLM
 from sentence_transformers import SentenceTransformer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from tqdm import tqdm
 
 logger = logging.getLogger("run")
@@ -87,16 +88,25 @@ def main():
     parser.add_argument("--doc_dir", type=str, default = "./NovelQA")
     parser.add_argument("--model", type=str, default = "")
     parser.add_argument("--embedder_device", type=str, default = "cuda")
-    parser.add_argument("--device", type=str, default = "cuda")
+    parser.add_argument("--device_ids", type=str, default = "0,1,2,3")
     parser.add_argument("--embed_model", type=str, default = "BAAI/bge-m3")
     parser.add_argument("--embedding_cache_path", type=str, default = "./cache")
     parser.add_argument("--ans_log_folder", type=str, default = "./ans_log")
     args = parser.parse_args()
+    
+    qa_device = [int(id) for id in args.device_ids.split(",")]
+    n_gpu = len(qa_device)
 
-    model, tokenizer = load_LLM(args.model)
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model,
+        device_map = "auto",
+        max_memory = {i: "78GB" for i in range(n_gpu)},
+        quantization_config = None,
+        trust_remote_code = True
+    )
+    tokenizer = AutoTokenizer.from_pretrained(args.model)
     model.eval()
-    model.to(args.device)
-    logger.info(f"Model loaded: {args.model}")
+    
     embedding_model = SentenceTransformer(args.embed_model)
     embedding_model.eval()
     embedding_model.to(args.embedder_device)
@@ -126,12 +136,24 @@ def main():
             inputs = QA_PROMPT.format(evidence = chunk_supplement_text, important_entities = graph_supplement_text, question = question_text)
             
             if args.dataset == "NarrativeQA":
-                inputs = tokenizer(inputs, return_tensors="pt").to(args.device)
-                outputs = model.generate(**inputs, max_new_tokens=100)
+                inputs = tokenizer(inputs, return_tensors="pt").to(f"cuda:{qa_device[0]}")
+                with torch.amp.autocast(device_type = "cuda"):
+                    outputs = model.generate(
+                        **inputs,
+                        max_new_tokens = 100,
+                        do_sample = True,
+                        num_beams = 4,
+                        no_repeat_ngram_size = 5,
+                        top_p = 0.95,
+                        top_k = 60,
+                        temperature = 0.7,
+                    )
                 answer = tokenizer.decode(outputs[0], skip_special_tokens=True)[len(inputs):]
             else:
-                inputs = tokenizer(inputs, return_tensors="pt", padding=True, truncation=True).input_ids.to(model.device)
-                outputs = model(input_ids = inputs).logits[0, -1]
+                inputs = tokenizer(inputs, return_tensors="pt").input_ids.to(f"cuda:{qa_device[0]}")
+                with torch.amp.autocast(device_type = "cuda"):
+                    outputs = model(input_ids = inputs).logits[0, -1]
+                
                 probs = torch.nn.functional.softmax(
                 torch.tensor([
                         outputs[tokenizer("A").input_ids[-1]],
@@ -153,6 +175,7 @@ def main():
                     "graph_supplement": graph_supplement_text,
                 }))
                 f.write("\n")
+        torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     main()
