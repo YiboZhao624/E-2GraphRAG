@@ -153,11 +153,15 @@ class TAGRetriever:
         Query the subset of the index.
         '''
         # 获取所有有效索引
+        logger.info(f"length of node_ids: {len(node_ids)}")
+        logger.info(f"node_ids: {node_ids}")
         valid_indices = [self.id_to_index[node_id] for node_id in node_ids]
+        logger.info(f"length of valid_indices: {len(valid_indices)}")
+        logger.info(f"valid_indices: {valid_indices}")
         valid_indices = np.array(valid_indices)
-        
+        logger.info(f"length of total indices: {self.index.ntotal}")
         # 对整个索引进行搜索
-        distances, indices = self.index.search(query_embed.reshape(1,-1), len(self.id_to_index))
+        distances, indices = self.index.search(query_embed.reshape(1,-1), len(valid_indices))
         distances = distances[0]
         indices = indices[0]
         
@@ -250,18 +254,18 @@ class TAGRetriever:
             distances, indices = self.query_all(query_embed, 10)
             distances = distances[0]
             indices = indices[0]
-            print("distances", distances)
-            print("indices", indices)
-            print("index_to_id", self.index_to_id)
-            print("id_to_index", self.id_to_index)
+            # print("distances", distances)
+            # print("indices", indices)
+            # print("index_to_id", self.index_to_id)
+            # print("id_to_index", self.id_to_index)
             chunk_ids = [self.index_to_id[idx] for idx in indices]
             res_chunks = [self.chunk_id_to_chunk[chunk_id] for chunk_id in chunk_ids]
         else:
             logger.info(f"Query subset with chunk ids: {chunk_ids}")
             distances, indices = self.query_subset(query_embed, chunk_ids, 10)
-            # 修复: 直接使用返回的 indices (它已经是 chunk_id 列表)
+            logger.info(f"length of indices: {len(indices)}")
             res_chunks = [self.chunk_id_to_chunk[chunk_id] for chunk_id in indices]
-        
+        logger.info(f"length of res_chunks: {len(res_chunks)}")
         # 按相似度排序
         chunk_id_to_distance = {chunk_id: distances[i] for i, chunk_id in enumerate(indices)}
         res_chunks = sorted(res_chunks, key=lambda x: chunk_id_to_distance[x["id"]], reverse=True)
