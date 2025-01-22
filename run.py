@@ -67,7 +67,9 @@ def prepare_question(question_id, question,dataset) -> str:
 
 def prepare_chunk_supplement(chunk_supplement:List[dict]) -> str:
     chunk_supplement_text = ""
+    logger.info(f"length of chunk_supplement: {len(chunk_supplement)}")
     for i, chunk in enumerate(chunk_supplement):
+        logger.info(f"chunk: {chunk}")
         chunk_supplement_text += f"{i+1}. {chunk['text']}\n"
     return chunk_supplement_text
 
@@ -95,12 +97,14 @@ def main():
     args = parser.parse_args()
     
     qa_device = [int(id) for id in args.device_ids.split(",")]
-    n_gpu = len(qa_device)
+    max_memory = {i: "0GiB" for i in range(8)}
+    for device in qa_device:
+        max_memory[device] = "78GiB"
 
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
         device_map = "auto",
-        max_memory = {i: "78GB" for i in range(n_gpu)},
+        max_memory = max_memory,
         quantization_config = None,
         trust_remote_code = True
     )
@@ -130,11 +134,12 @@ def main():
         for question_id, question in questions.items():
             question_text = prepare_question(question_id, question, args.dataset)
             chunk_supplement, graph_supplement, entities = Retriever.query(question_text, book["book_id"])
+            
             chunk_supplement_text = prepare_chunk_supplement(chunk_supplement)
             graph_supplement_text = prepare_graph_supplement(graph_supplement)
 
             inputs = QA_PROMPT.format(evidence = chunk_supplement_text, important_entities = graph_supplement_text, question = question_text)
-            
+            # logger.info(f"inputs: {inputs}")
             if args.dataset == "NarrativeQA":
                 inputs = tokenizer(inputs, return_tensors="pt").to(f"cuda:{qa_device[0]}")
                 with torch.amp.autocast(device_type = "cuda"):
@@ -164,10 +169,9 @@ def main():
                     dim=0,
                 ).detach().cpu().numpy()
                 answer = ["A", "B", "C", "D"][np.argmax(probs)]
-            # print(answer)
+            logger.info(f"answer: {answer}")
             with open(ans_log, "a") as f:
                 f.write(json.dumps({
-                    "question_id": question["question_id"],
                     "question": question_text,
                     "answer": answer,
                     "entities in query": entities,
