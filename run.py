@@ -69,7 +69,7 @@ def prepare_chunk_supplement(chunk_supplement:List[dict]) -> str:
     chunk_supplement_text = ""
     logger.info(f"length of chunk_supplement: {len(chunk_supplement)}")
     for i, chunk in enumerate(chunk_supplement):
-        logger.info(f"chunk: {chunk}")
+        # logger.info(f"chunk: {chunk}")
         chunk_supplement_text += f"{i+1}. {chunk['text']}\n"
     return chunk_supplement_text
 
@@ -105,6 +105,7 @@ def main():
         args.model,
         device_map = "auto",
         max_memory = max_memory,
+        torch_dtype = torch.bfloat16,
         quantization_config = None,
         trust_remote_code = True
     )
@@ -140,35 +141,36 @@ def main():
 
             inputs = QA_PROMPT.format(evidence = chunk_supplement_text, important_entities = graph_supplement_text, question = question_text)
             # logger.info(f"inputs: {inputs}")
-            if args.dataset == "NarrativeQA":
-                inputs = tokenizer(inputs, return_tensors="pt").to(f"cuda:{qa_device[0]}")
-                with torch.amp.autocast(device_type = "cuda"):
-                    outputs = model.generate(
-                        **inputs,
-                        max_new_tokens = 100,
-                        do_sample = True,
-                        num_beams = 4,
-                        no_repeat_ngram_size = 5,
-                        top_p = 0.95,
-                        top_k = 60,
-                        temperature = 0.7,
-                    )
-                answer = tokenizer.decode(outputs[0], skip_special_tokens=True)[len(inputs):]
-            else:
-                inputs = tokenizer(inputs, return_tensors="pt").input_ids.to(f"cuda:{qa_device[0]}")
-                with torch.amp.autocast(device_type = "cuda"):
-                    outputs = model(input_ids = inputs).logits[0, -1]
-                
-                probs = torch.nn.functional.softmax(
-                torch.tensor([
-                        outputs[tokenizer("A").input_ids[-1]],
-                        outputs[tokenizer("B").input_ids[-1]],
-                        outputs[tokenizer("C").input_ids[-1]],
-                        outputs[tokenizer("D").input_ids[-1]],
-                    ]).float(),
-                    dim=0,
-                ).detach().cpu().numpy()
-                answer = ["A", "B", "C", "D"][np.argmax(probs)]
+            with torch.no_grad():
+                if args.dataset == "NarrativeQA":
+                    inputs = tokenizer(inputs, return_tensors="pt").to(f"cuda:{qa_device[0]}")
+                    with torch.amp.autocast(device_type = "cuda"):
+                        outputs = model.generate(
+                            **inputs,
+                            max_new_tokens = 100,
+                            do_sample = True,
+                            num_beams = 4,
+                            no_repeat_ngram_size = 5,
+                            top_p = 0.95,
+                            top_k = 60,
+                            temperature = 0.7,
+                        )
+                    answer = tokenizer.decode(outputs[0], skip_special_tokens=True)[len(inputs):]
+                else:
+                    inputs = tokenizer(inputs, return_tensors="pt").input_ids.to(f"cuda:{qa_device[0]}")
+                    with torch.amp.autocast(device_type = "cuda"):
+                        outputs = model(input_ids = inputs).logits[0, -1]
+                    
+                    probs = torch.nn.functional.softmax(
+                    torch.tensor([
+                            outputs[tokenizer("A").input_ids[-1]],
+                            outputs[tokenizer("B").input_ids[-1]],
+                            outputs[tokenizer("C").input_ids[-1]],
+                            outputs[tokenizer("D").input_ids[-1]],
+                        ]).float(),
+                        dim=0,
+                    ).detach().cpu().numpy()
+                    answer = ["A", "B", "C", "D"][np.argmax(probs)]
             logger.info(f"answer: {answer}")
             with open(ans_log, "a") as f:
                 f.write(json.dumps({
