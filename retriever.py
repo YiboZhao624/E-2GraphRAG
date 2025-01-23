@@ -153,13 +153,13 @@ class TAGRetriever:
         Query the subset of the index.
         '''
         # 获取所有有效索引
-        logger.info(f"length of node_ids: {len(node_ids)}")
-        logger.info(f"node_ids: {node_ids}")
+        # logger.info(f"length of node_ids: {len(node_ids)}")
+        # logger.info(f"node_ids: {node_ids}")
         valid_indices = [self.id_to_index[node_id] for node_id in node_ids]
-        logger.info(f"length of valid_indices: {len(valid_indices)}")
-        logger.info(f"valid_indices: {valid_indices}")
+        # logger.info(f"length of valid_indices: {len(valid_indices)}")
+        # logger.info(f"valid_indices: {valid_indices}")
         valid_indices = np.array(valid_indices)
-        logger.info(f"length of total indices: {self.index.ntotal}")
+        # logger.info(f"length of total indices: {self.index.ntotal}")
         # 对整个索引进行搜索
         distances, indices = self.index.search(query_embed.reshape(1,-1), len(valid_indices))
         distances = distances[0]
@@ -209,11 +209,13 @@ class TAGRetriever:
                     if node1 in self._index["global_nouns"]:
                         chunks1 = self._index["noun_to_chunks"][node1]
                     else:
-                        logger.info(f"Node: {node1} not in global_nouns")
+                        # logger.info(f"Node: {node1} not in global_nouns")
+                        chunks1 = set()
                     if node2 in self._index["global_nouns"]:
                         chunks2 = self._index["noun_to_chunks"][node2]
                     else:
-                        logger.info(f"Node: {node2} not in global_nouns")
+                        # logger.info(f"Node: {node2} not in global_nouns")
+                        chunks2 = set()
                     res_chunk.update(chunks1 | chunks2)
             res_chunks.update(res_chunk)
         res_chunks = list(res_chunks)
@@ -242,13 +244,13 @@ class TAGRetriever:
             for node in path:
                 related_entities.add(node)
         related_entities = list(related_entities)
-        logger.info(f"Related entities: {related_entities}")
+        # logger.info(f"Related entities: {related_entities}")
         # step 3.
         query_embed = self.model.encode(question, convert_to_numpy=True)
         # step 4.
         # multiple paths/ long path -> (A ∩ B)∪(B ∩ C) if a——>b——>c
         chunk_ids = self.find_chunks(paths)
-        logger.info(f"Chunk ids count: {len(chunk_ids)}")
+        # logger.info(f"Chunk ids count: {len(chunk_ids)}")
         # step 5. subset query.
         if len(chunk_ids) == 0:
             distances, indices = self.query_all(query_embed, 10)
@@ -261,13 +263,13 @@ class TAGRetriever:
             chunk_ids = [self.index_to_id[idx] for idx in indices]
             res_chunks = [self.chunk_id_to_chunk[chunk_id] for chunk_id in chunk_ids]
         else:
-            logger.info(f"Query subset with chunk ids: {chunk_ids}")
+            # logger.info(f"Query subset with chunk ids: {chunk_ids}")
             distances, indices = self.query_subset(query_embed, chunk_ids, 10)
-            logger.info(f"length of indices: {len(indices)}")
+            # logger.info(f"length of indices: {len(indices)}")
             res_chunks = [self.chunk_id_to_chunk[chunk_id] for chunk_id in indices]
         logger.info(f"length of res_chunks: {len(res_chunks)}")
         # 按相似度排序
         chunk_id_to_distance = {chunk_id: distances[i] for i, chunk_id in enumerate(indices)}
-        res_chunks = sorted(res_chunks, key=lambda x: chunk_id_to_distance[x["id"]], reverse=True)
+        # res_chunks = sorted(res_chunks, key=lambda x: chunk_id_to_distance[x["id"]], reverse=True)
 
         return res_chunks, related_entities, entities
