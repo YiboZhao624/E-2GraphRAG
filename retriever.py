@@ -53,6 +53,13 @@ class TAGRetriever:
             chunk["id"]: chunk 
             for chunk in self.data["book_chunks"]
         }
+        self.chunk_id_to_chunk.update(
+            {
+                summary["id"]: summary
+                for depth, summaries in self.data["summary_layers"].items()
+                for summary in summaries
+            }
+        )
         self.index_to_id = {}
 
         self.reset()
