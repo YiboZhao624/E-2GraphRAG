@@ -1,54 +1,29 @@
-## 1. 建图:
+## 文档树
 
-1.1 分chunk
+1. sequential，直接聚合做summarize
+2. 索引键：利用NER从中提取实体，同一个句子中的实体算一次共现，有一个边关系
 
-不同大小的chunk是否要做一个消融-没空做了。。
+## 建图
 
-1.2 对chunk抽三元组/实体
+1. 实体共现作为知识图谱
+2. 查询时从图谱中找实体之间的最短路径，实现多跳的推理
+3. 将关键路径同时送入到模型中 prompt类似于“A、B、C”对这个问题很重要
+4. 建图和文档树构建是并行的
 
-直接抽名词和共现次数就好。
+## 查询
 
-1.3 实体去重
+1. 对query做NER，提取实体
+2. 到索引键中进行map，如果有map到的，那么对结果去交集，同时去除掉其中没有任何map到的实体
+3. 如果全都没有map到，或者没有实体，那么就从顶开始查询
+4. 从顶到下设置不同的similarity阈值，从而避免过于**武断**的剪枝操作。
 
-可以直接复用之前的BERT Embedding聚类的方法，将同一个实体的名称都标准化。
+## 评估指标
 
-1.4 实体-chunk mapping
+dataset  RAPTOR  GraphRAG  LightRAG  Ours
 
-这里需要考虑LLM从query里抽的实体是否够标准？或者这一步将同一个实体的所有名字都保留下来，即一个实体有多个名字，只要chunk中出现了一个名字，就将所有别名都作为这一个小chunk的key。
+NovelQA - Acc., Build Time, Query Time, Token used.
 
-## 2. 建树
-
-2.1 chunk cluster
-
-这里是否可以加一点，比如有的topic可能是三个chunk讲的，有的是两个chunk，我们如果直接固定了summary对应的chunk数目，可能会导致同一个话题分到了两个父节点，我们自顶向下的查询可能就不够准，所以加一步cluster可能更灵活、更好。
-
-也可以直接用超参，无所谓，我们就是快！
-
-2.2 chunk summary
-
-直接调用大模型做summary
-
-## 3. 查询
-
-3.1 对Query实体识别
-
-直接用大模型
-
-3.2 叶子节点查询
-
-查询树的叶子节点的key
-
-if mapped：从叶子节点出发查询
-
-if not mapped：从根节点出发查询
-
-3.3 过滤+排序
-
-计算查询到的树节点和query的相似度--这里直接用相似度足够好吗？好像也没想到新的方法，然后得到排序结果
-
-## 4. 评估
-
-NovelQA + NarrativeQA + Summarize case study
+NarrativeQA - BLEU, Build Time, Query Time, Token used.
 
 ## 5. 数据集
 
@@ -66,4 +41,34 @@ Loong: https://github.com/AlibabaResearch/DAMO-ConvAI/tree/main/Loong
 
 FindSum: https://drive.google.com/drive/folders/1KVJAKWO49Iahgsv4lipn49pM-ojXL6yM
 
-**NovelQA**: https://github.com/NovelQA/novelqa.github.io --> Local, long document.
+* [X]  **NovelQA**: https://github.com/NovelQA/novelqa.github.io --> Local, long document.
+
+## Developing Roadmap:
+
+1. refactor yb_dataloader
+2. summarize Narrative QA
+3. query function.
+4. run query
+5. run baselines
+
+## Metrics
+
+1. Acc
+2. Retrieving Time（Ratio）
+3. Building Time（Ratio）
+4. Case Study
+
+## Backbone Model
+
+1. Qwen2.5-14B-Instruct
+2. Llama3.1-7B-Instruct
+
+## 结果数据
+
+预构建时间：
+
+Ours Novel QA：100hrs 37min 48sec
+
+Ours Narrative QA：
+
+RAPTOR Novel QA：
