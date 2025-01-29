@@ -30,17 +30,27 @@ def extract_nouns(text):
     # Store the noun and its cooccurrence information
     noun_pairs = {}
     all_nouns = set()
-    
+    double_nouns = {}  # Store two-word names mapping
+
     # Process each sentence
     for sent in doc.sents:
         sentence_terms = []
         
         ent_positions = set()
         for ent in sent.ents:
-            if ent.label_ in ['PERSON', 'ORG', 'GPE']:
+            if ent.label_ == 'PERSON':
+                # Handle several-word person names
+                name_parts = ent.text.split()
+                if len(name_parts) >= 2:
+                    for name in name_parts:
+                        double_nouns[name] = name_parts
+                    sentence_terms.extend(name_parts)
+                else:
+                    sentence_terms.append(ent.text)
+            elif ent.label_ in ['ORG', 'GPE']:
                 sentence_terms.append(ent.text)
-                for token in ent:
-                    ent_positions.add(token.i)
+            for token in ent:
+                ent_positions.add(token.i)
         
         for token in sent:
             if token.i in ent_positions:
@@ -61,7 +71,8 @@ def extract_nouns(text):
     
     return {
         "nouns": list(all_nouns),
-        "cooccurrence": noun_pairs
+        "cooccurrence": noun_pairs,
+        "double_nouns": double_nouns
     }
 
 
@@ -69,7 +80,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="novelqa",choices = ["narrativeqa", "novelqa"])
     parser.add_argument("--model_name", type=str, default="/root/shared_planing/LLM_model/Qwen2.5-14B-Instruct")
-    parser.add_argument("--resume", type=int, default=17)
+    parser.add_argument("--resume", type=int, default=0)
 
     args = parser.parse_args()
     logger.info(args.dataset)
@@ -92,7 +103,8 @@ def main():
             "global_nouns": set(),
             "chunk_to_nouns": {},
             "noun_to_chunks": defaultdict(set),
-            "noun_pairs": {}
+            "noun_pairs": {},
+            "double_nouns": {}
         }
         for chunk in book_chunks:
             chunk_text = chunk["text"]
@@ -100,12 +112,21 @@ def main():
             nouns_info = extract_nouns(chunk_text)
             nouns = nouns_info["nouns"]
             cooccurrence = nouns_info["cooccurrence"]
+            double_nouns = nouns_info["double_nouns"]
             
-            # logger.info(nouns)
-            # logger.info(cooccurrence)
-            book_dict["global_nouns"].update(nouns)
-            book_dict["chunk_to_nouns"][chunk_id] = set(nouns)
-            for noun in nouns:
+            # Update double_nouns dictionary
+            book_dict["double_nouns"].update(double_nouns)
+            
+            # Check if any single name part exists and add its pair
+            updated_nouns = set(nouns)
+            for name in updated_nouns:
+                to_update = double_nouns.get(name, [])
+                if len(to_update) > 0:
+                    updated_nouns.update(set(to_update))
+            
+            book_dict["global_nouns"].update(updated_nouns)
+            book_dict["chunk_to_nouns"][chunk_id] = updated_nouns
+            for noun in updated_nouns:
                 book_dict["noun_to_chunks"][noun].add(chunk_id)
             for pair, count in cooccurrence.items():
                 book_dict["noun_pairs"][pair] = book_dict["noun_pairs"].get(pair, 0) + count
