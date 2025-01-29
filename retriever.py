@@ -34,6 +34,11 @@ class TAGRetriever:
     The query method will first find the father node of the chunks and then filter the chunks by the query. Finally, it will return the chunks in list ordered by similarity.
     '''
     def __init__(self, dataloader:AbstractDataLoader, book_id, embedder_model, embed_model_name, device, embedding_cache_path = None):
+        # related vars:
+        # self.data: all the related data.
+        # self.graph: the graph of the book.
+        # self._index is the index of the book chunks, for quick search.
+        
         self.model = embedder_model
         self.model.to(device)
         self.model.eval()
@@ -53,11 +58,12 @@ class TAGRetriever:
             chunk["id"]: chunk 
             for chunk in self.data["book_chunks"]
         }
+        # self.data["summary_layers"] is a dict, key is the depth, value is a list of summary chunks within relative depth.
         self.chunk_id_to_chunk.update(
             {
                 summary["id"]: summary
-                for depth, summaries in self.data["summary_layers"].items()
-                for summary in summaries
+                for depth, summary_chunks in self.data["summary_layers"].items()
+                for summary in summary_chunks
             }
         )
         self.index_to_id = {}
@@ -233,7 +239,7 @@ class TAGRetriever:
         distances, indices = self.index.search(query_embed.reshape(1,-1), k)
         return distances, indices
     
-    def query(self, query, book_id):
+    def query(self, query):
         # 1. NER the query, find the entities in the query.
         # 2. find the shortest path between the entities.
         # 3. calculate the embedding of the query.
@@ -242,6 +248,13 @@ class TAGRetriever:
         # 6. return the chunks in list ordered by similarity.
         question = query.split("\n")[0]
         entities:list = extract_nouns(question)["nouns"]
+        for entity in entities:
+            entity = entity.split()
+            if len(entity) > 1:
+                entities.extend(entity)
+            else:
+                pass
+        entities = list(set(entities))
         logger.info(f"Query text: {question}")
         logger.info(f"Extracted entities: {entities}")
         # step 2.
