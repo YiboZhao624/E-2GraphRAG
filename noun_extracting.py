@@ -135,5 +135,13 @@ def main():
         loader.update_index(book_id, book_dict)
         loader.save_index(book_id, f"{loader.parent_folder}/New_Index")
 
+def test():
+    text = "I am a student from China. I am John Brown."
+    nouns_info = extract_nouns(text)
+    assert nouns_info["double_nouns"] == {"John": ["John", "Brown"], "Brown": ["John", "Brown"]}
+    assert nouns_info["nouns"] == ["student", "china", "john", "brown"]
+    assert nouns_info["cooccurrence"] == {("student", "china"): 1, ("john", "brown"): 1}
+
 if __name__ == "__main__":
+    test()
     main()
