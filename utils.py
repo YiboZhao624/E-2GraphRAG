@@ -43,7 +43,7 @@ def extract_nouns(text):
     try:
         nlp = spacy.load('en_core_web_lg')
     except OSError:
-        print("Downloading spacy model...")
+        logger.info("Downloading spacy model...")
         spacy.cli.download('en_core_web_lg')
         nlp = spacy.load('en_core_web_lg')
     
@@ -53,17 +53,27 @@ def extract_nouns(text):
     # Store the noun and its cooccurrence information
     noun_pairs = {}
     all_nouns = set()
-    
+    double_nouns = {}  # Store two-word names mapping
+
     # Process each sentence
     for sent in doc.sents:
         sentence_terms = []
         
         ent_positions = set()
         for ent in sent.ents:
-            if ent.label_ in ['PERSON', 'ORG', 'GPE']:
+            if ent.label_ == 'PERSON':
+                # Handle several-word person names
+                name_parts = ent.text.split()
+                if len(name_parts) >= 2:
+                    for name in name_parts:
+                        double_nouns[name] = name_parts
+                    sentence_terms.extend(name_parts)
+                else:
+                    sentence_terms.append(ent.text)
+            elif ent.label_ in ['ORG', 'GPE']:
                 sentence_terms.append(ent.text)
-                for token in ent:
-                    ent_positions.add(token.i)
+            for token in ent:
+                ent_positions.add(token.i)
         
         for token in sent:
             if token.i in ent_positions:
@@ -84,5 +94,6 @@ def extract_nouns(text):
     
     return {
         "nouns": list(all_nouns),
-        "cooccurrence": noun_pairs
+        "cooccurrence": noun_pairs,
+        "double_nouns": double_nouns
     }
