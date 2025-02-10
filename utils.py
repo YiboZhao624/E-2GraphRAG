@@ -41,11 +41,11 @@ def chunk_text(text, tokenizer_name, chunk_size, overlap):
 
 def extract_nouns(text):
     try:
-        nlp = spacy.load('en_core_web_sm')
+        nlp = spacy.load('en_core_web_lg')
     except OSError:
         print("Downloading spacy model...")
-        spacy.cli.download('en_core_web_sm')
-        nlp = spacy.load('en_core_web_sm')
+        spacy.cli.download('en_core_web_lg')
+        nlp = spacy.load('en_core_web_lg')
     
     # Process the text
     doc = nlp(text)
