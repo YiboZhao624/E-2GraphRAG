@@ -3,12 +3,14 @@ import argparse
 from GlobalConfig import *
 from typing import List
 from yb_dataloader import NarrativeQALoader, NovelQALoader
-from prompts import SUMMARY_PROMPT
 from utils import load_LLM
 from tqdm import tqdm
 import logging
 import json
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModel, pipeline
+from prompt_dict import Prompts
+
+
 logger = logging.getLogger("build_tree")
 logging.basicConfig(
     level=logging.INFO,
@@ -42,7 +44,69 @@ def sequential_merge(chunks:List[str],
         res += tokenizer.decode(ids)
     return res
 
+def load_cache_summary(cache_path:str)->List[str]:
+    '''
+    Load the summary from the cache file.
+    The cache file is a json file, name as {book_id}_summary.json.
+    keys are:
+    chunk_id:{
+        "text: str,
+        "children": List[str],
+        "parent": str,
+    }
+    '''
+    with open(cache_path, "r") as f:
+        return json.load(f)
 
+def summarize_leaf(text:str, llm:pipeline,)->List[str]:
+    '''
+    Summarize the text into chunks.
+    '''
+    prompt = Prompts["summarize_details"].format(text=text)
+    res = llm(prompt)
+    return res
+
+def summarize_summary(text:str, llm:pipeline,)->List[str]:
+    '''
+    Summarize the summary into chunks.
+    '''
+    prompt = Prompts["summarize_summary"].format(text=text)
+    res = llm(prompt)
+    return res
+
+def build_tree(text:str, llm:pipeline, cache_path:str,
+               tokenizer:AutoTokenizer, length:int, overlap:int, merge_num:int)->dict:
+    '''
+    Build the tree from the text.
+    '''
+    cache = {}
+    text_chunks = sequential_split(text, tokenizer, length, overlap)
+    
+    # leaf ids in the format of "leaf_{i}"
+    # due to the leaf has no children, it is set as None.
+    for i in range(len(text_chunks)):
+        cache["leaf_{}".format(i)] = {
+            "text": text_chunks[i],
+            "children": None,
+            "parent": None,
+        }
+
+    # do summarize for the first level.
+    summary_id_count = 0
+    for i in range(0, len(text_chunks), merge_num):
+        merged_chunks = sequential_merge(text_chunks[i:i+merge_num], tokenizer, length, overlap)
+        summary = summarize_leaf(merged_chunks, llm)
+        cache["summary_{}".format(summary_id_count)] = {
+            "text": summary,
+            "children": [f"leaf_{j}" for j in range(i, i+merge_num)],
+            "parent": [],
+        }
+        summary_id_count += 1
+        for j in range(i, i+merge_num):
+            cache["leaf_{}".format(j)]["parent"]="summary_{}".format(summary_id_count)
+
+    # do summarize for the rest levels.
+    
 
 def test():
     tokenizer = AutoTokenizer.from_pretrained(Qwen2_5_14B_Instruct)
