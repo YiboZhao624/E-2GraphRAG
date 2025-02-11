@@ -3,7 +3,7 @@ from typing import List
 import json
 from transformers import AutoTokenizer, pipeline
 from prompt_dict import Prompts
-from util2 import sequential_split# for test.
+from utils import sequential_split# for test.
 
 def sequential_merge(chunks:List[str], 
                      tokenizer:AutoTokenizer,

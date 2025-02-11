@@ -45,18 +45,18 @@ FindSum: https://drive.google.com/drive/folders/1KVJAKWO49Iahgsv4lipn49pM-ojXL6y
 
 ## Developing Roadmap:
 
-1. refactor yb_dataloader
-2. summarize Narrative QA
-3. query function.
-4. run query
-5. run baselines
+1. yb_dataloader.py
+2. main.py - load data + build tree and extract nouns(async) + query
+3. build_tree.py
+4. extract_nouns.py
+5. query.py
 
 ## Metrics
 
-1. Acc
-2. Retrieving Time（Ratio）
-3. Building Time（Ratio）
-4. Case Study
+1. [ ]  Acc
+2. [ ]  Retrieving Time（Ratio）
+3. [ ]  Building Time（Ratio）
+4. [ ]  Case Study
 
 ## Backbone Model
 
