@@ -1,40 +1,13 @@
-import os
-import argparse
 from GlobalConfig import *
 from typing import List
-from yb_dataloader import NarrativeQALoader, NovelQALoader
-from utils import load_LLM
-from tqdm import tqdm
-import logging
 import json
-from transformers import AutoTokenizer, AutoModel, pipeline
+from transformers import AutoTokenizer, pipeline
 from prompt_dict import Prompts
-
-
-logger = logging.getLogger("build_tree")
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
-
-def sequential_split(text:str, tokenizer:AutoTokenizer,
-                     length:int, overlap:int)->List[str]:
-    '''
-    Split the text into chunks of length length with overlap.
-    '''
-    chunks = []
-    text_ids = tokenizer(text, return_tensors="pt")["input_ids"][0]
-    for i in range(0, len(text_ids), length - overlap):
-        chunk = tokenizer.decode(text_ids[i:i+length])
-        chunks.append(chunk)
-    return chunks
+from util2 import sequential_split# for test.
 
 def sequential_merge(chunks:List[str], 
                      tokenizer:AutoTokenizer,
-                     length:int, overlap:int)->str:
+                     overlap:int)->str:
     '''
     Merge the chunks into a single text.
     '''
@@ -74,13 +47,12 @@ def summarize_summary(text:str, llm:pipeline,)->List[str]:
     res = llm(prompt)
     return res
 
-def build_tree(text:str, llm:pipeline, cache_path:str,
+def build_tree(text_chunks:List[str], llm:pipeline, cache_path:str,
                tokenizer:AutoTokenizer, length:int, overlap:int, merge_num:int)->dict:
     '''
     Build the tree from the text.
     '''
     cache = {}
-    text_chunks = sequential_split(text, tokenizer, length, overlap)
     
     # leaf ids in the format of "leaf_{i}"
     # due to the leaf has no children, it is set as None.
@@ -94,9 +66,9 @@ def build_tree(text:str, llm:pipeline, cache_path:str,
     # do summarize for the first level.
     summary_id_count = 0
     for i in range(0, len(text_chunks), merge_num):
-        merged_chunks = sequential_merge(text_chunks[i:i+merge_num], tokenizer, length, overlap)
+        merged_chunks = sequential_merge(text_chunks[i:i+merge_num], tokenizer, overlap)
         summary = summarize_leaf(merged_chunks, llm)
-        cache["summary_{}".format(summary_id_count)] = {
+        cache["summary_0_{}".format(summary_id_count)] = {
             "text": summary,
             "children": [f"leaf_{j}" for j in range(i, i+merge_num)],
             "parent": [],
@@ -105,8 +77,33 @@ def build_tree(text:str, llm:pipeline, cache_path:str,
         for j in range(i, i+merge_num):
             cache["leaf_{}".format(j)]["parent"]="summary_{}".format(summary_id_count)
 
+    to_summarize = [f"summary_0_{i}" for i in range(summary_id_count)]
+    level = 1
     # do summarize for the rest levels.
+    while len(to_summarize) > 1.2 * merge_num:
+        new_summary_id_count = 0
+        for i in range(0, len(to_summarize), merge_num):
+            # for summary, there is no overlap.
+            merged_chunks = sequential_merge(to_summarize[i:i+merge_num], tokenizer, 0)
+            # for summary, using different prompt.
+            summary = summarize_summary(merged_chunks, llm)
+            # key format: summary_{level}_{i}
+            cache["summary_{}_{}".format(level, new_summary_id_count)] = {
+                "text": summary,
+                "children": [f"summary_{level}_{j}" for j in range(i, i+merge_num)],
+                "parent": [],
+            }
+            new_summary_id_count += 1
+            for j in range(i, i+merge_num):
+                cache["summary_{}_{}".format(level-1, j)]["parent"] = f"summary_{level}_{new_summary_id_count}"
+        # update the to_summarize list.
+        to_summarize = [f"summary_{level}_{i}" for i in range(new_summary_id_count)]
+        level += 1
     
+    # save the cache.
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump(cache, f, ensure_ascii=False)
+    return cache
 
 def test():
     tokenizer = AutoTokenizer.from_pretrained(Qwen2_5_14B_Instruct)
