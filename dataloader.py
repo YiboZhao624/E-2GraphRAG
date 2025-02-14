@@ -105,3 +105,10 @@ class NarrativeQALoader:
         assert isinstance(index, int), "Index must be an integer"
         assert index <= 89, "Index out of bounds"
         return self.dataset[self.available_ids[index]]
+
+
+if __name__ == "__main__":
+    loader = NarrativeQALoader()
+    print(loader[0])
+    loader = NovelQALoader("NovelQA")
+    print(loader[0])
