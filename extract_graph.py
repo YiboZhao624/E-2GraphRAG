@@ -12,21 +12,16 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from sklearn.cluster import DBSCAN
 
-def naive_extract_graph(text: str):
-    '''
-    text: the text to be extracted, usually a chunk.
-    return a dict with the following keys:
-        "nouns": list of nouns in the text.
-        "cooccurrence": dict of cooccurrence of nouns.
-        "double_nouns": dict of double nouns.
-    '''
+def load_nlp():
     try:
-        nlp = spacy.load('en_core_web_lg')
-    except OSError:
+        nlp = spacy.load("en_core_web_lg")
+    except:
         print("Downloading spacy model...")
-        spacy.cli.download('en_core_web_lg')
-        nlp = spacy.load('en_core_web_lg')
+        spacy.cli.download("en_core_web_lg")
+        nlp = spacy.load("en_core_web_lg")
+    return nlp
         
+def naive_extract_graph(text:str, nlp:spacy.Language):
     # process the text
     doc = nlp(text)
     
@@ -232,7 +227,7 @@ def save_index(result, cache_path:str):
     with open(cache_path, "w") as f:
         json.dump(result, f)
     
-def extract_graph(text:List[str], cache_path:str):
+def extract_graph(text:List[str], cache_path:str, nlp:spacy.Language):
     if os.path.exists(cache_path):
         return load_cache(cache_path)
     else:
@@ -243,7 +238,7 @@ def extract_graph(text:List[str], cache_path:str):
         index = {}
 
         for i, chunk in enumerate(text):
-            naive_result = naive_extract_graph(chunk)
+            naive_result = naive_extract_graph(chunk, nlp)
             # not merge the entities.
 
             for noun in naive_result["nouns"]:
