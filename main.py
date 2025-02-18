@@ -1,6 +1,6 @@
 import multiprocessing as mp
 from build_tree import build_tree
-from extract_graph import extract_graph
+from extract_graph import extract_graph, load_nlp
 from utils import Timer, timed
 from dataloader import NovelQALoader, NarrativeQALoader
 import argparse
@@ -28,7 +28,7 @@ def parse_args():
     
     return args
 
-def parallel_build_extract(text, llm, tokenizer, cache_path, length, overlap, merge_num):
+def parallel_build_extract(text, llm, tokenizer, cache_path, length, overlap, merge_num, nlp):
 
     timer = Timer()
 
@@ -41,7 +41,7 @@ def parallel_build_extract(text, llm, tokenizer, cache_path, length, overlap, me
         conn.close()
 
     def extract_graph_pipe(conn):
-        result = extract_graph(text, cache_path)
+        result = extract_graph(text, cache_path, nlp)
         conn.send(result)
         conn.close()
 
@@ -77,6 +77,8 @@ def main():
     # parse the arguments.
     args = parse_args()
 
+    nlp = load_nlp()
+
     # load the dataset.
     if args.dataset == "NovelQA":
         dataset = NovelQALoader(args.dataset_path)
@@ -110,8 +112,8 @@ def main():
         # process the text:
         tree, graph = parallel_build_extract(text, llm_pipeline, tokenizer,
                                              args.cache_path, args.length, 
-                                             args.overlap, args.merge_num)
-        retriever = Retriever(tree, graph)
+                                             args.overlap, args.merge_num, nlp)
+        retriever = Retriever(tree, graph, nlp)
         
         res = []
         # answer the question.
