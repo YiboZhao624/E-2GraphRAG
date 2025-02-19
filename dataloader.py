@@ -36,7 +36,6 @@ class NovelQALoader:
                 for filename in os.listdir(os.path.join(self.qapath, directory)):
                     with open(os.path.join(self.qapath, directory, filename), "r") as infile:
                         qa_id = int(filename.split('.')[0][1:])
-                        dataset[qa_id] = {}
                         dataset[qa_id]["qa"] = json.loads(infile.read())
         return dataset
     
@@ -61,6 +60,8 @@ class NovelQALoader:
     def __getitem__(self, index):
         assert isinstance(index, int), "Index must be an integer"
         assert index <= 89, "Index out of bounds"
+        print(index)
+        print(self.dataset[index])
         to_return = {}
         to_return["book"] = self.dataset[index]["book"]
         to_return["qa"] = self._format_qa(self.dataset[index]["qa"])
@@ -95,6 +96,7 @@ class NarrativeQALoader:
             if book_id not in formatted_dataset:
                 formatted_dataset[book_id] = {}
                 formatted_dataset[book_id]["book"] = item["document"]["text"]
+                formatted_dataset[book_id]["qa"] = []
             formatted_dataset[book_id]["qa"].append({
                 "question": item["question"]["text"],
                 "answer": [item["answers"][i]["text"] for i in range(len(item["answers"]))]
@@ -107,8 +109,70 @@ class NarrativeQALoader:
         return self.dataset[self.available_ids[index]]
 
 
+class test_loader:
+    '''
+    data will be returned as a dictionary with :
+    {
+        "book": str,
+        "qa": list of dictionaries with keys:
+            "id": str,
+            "question": str,
+            "answer": str
+    }
+    question is well formatted.
+    '''
+    def __init__(self, path):
+        self.parent_folder = path
+        self.qapath = os.path.join(path, "Data")
+        self.docpath = os.path.join(path, "Books")
+        self.dataset = self._initialize_dataset()
+    
+    def _initialize_dataset(self):
+        dataset = {45:{}}
+        doc_path = os.path.join(self.docpath, "CopyrightProtected","B45.txt")
+        qa_path = os.path.join(self.qapath, "CopyrightProtected", "B45.json")
+        with open(doc_path, "r") as infile:
+            dataset[45]["book"] = infile.read()
+        with open(qa_path, "r") as infile:
+            dataset[45]["qa"] = json.loads(infile.read())
+        return dataset
+    
+    def _format_qa(self, qa_dict):
+        formatted_qa = []
+        for qa_id, qa in qa_dict.items():
+            question = qa["Question"]
+            options = qa["Options"]
+            answer = qa["Gold"]
+            question_text = question + "\n"
+            for option, text in options.items():
+                question_text += option + ". " + text
+                if option != "D":
+                    question_text += "\n"
+            formatted_qa.append({
+                "id": qa_id,
+                "question": question_text,
+                "answer": answer
+            })
+        return formatted_qa
+
+    def __getitem__(self, index):
+        assert isinstance(index, int), "Index must be an integer"
+        assert index <= 89, "Index out of bounds"
+        to_return = {}
+        to_return["book"] = self.dataset[index]["book"]
+        to_return["qa"] = self._format_qa(self.dataset[index]["qa"])
+        return to_return
+
+    def __len__(self):
+        return len(self.dataset)
+
+
+
+
 if __name__ == "__main__":
     loader = NarrativeQALoader()
-    print(loader[0])
+    print("narrativeqa")
     loader = NovelQALoader("NovelQA")
     print(loader[0])
+    loader = test_loader("NovelQA")
+    print(loader[45])    
