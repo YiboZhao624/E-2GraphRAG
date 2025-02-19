@@ -1,7 +1,7 @@
 import multiprocessing as mp
 from build_tree import build_tree
 from extract_graph import extract_graph, load_nlp
-from utils import Timer, timed
+from utils import Timer, timed, sequential_split
 from dataloader import NovelQALoader, NarrativeQALoader
 import argparse
 from transformers import pipeline, AutoTokenizer, AutoModel
@@ -94,26 +94,24 @@ def main():
 
     else:
         raise ValueError("Invalid dataset")
-    
-    # chunk the dataset.
-
     # preliminary.
     
     
-
-
     # for data_piece in dataset:
         # parallel_build_extract(data_piece) - save the cache.
         # answer the question.
         # save the answer.
     for data_piece in dataset:
         text = data_piece["book"]
+        # first chunk the text book for input of the build_tree.
+        text = sequential_split(text, tokenizer, args.length, args.overlap)
         qa = data_piece["qa"]
         # process the text:
         tree, graph = parallel_build_extract(text, llm_pipeline, tokenizer,
                                              args.cache_path, args.length, 
                                              args.overlap, args.merge_num, nlp)
-        retriever = Retriever(tree, graph, nlp)
+        G, index = graph
+        retriever = Retriever(tree, G, index, nlp)
         
         res = []
         # answer the question.
