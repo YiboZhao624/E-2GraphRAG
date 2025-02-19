@@ -1,5 +1,6 @@
 from typing import List
 from transformers import AutoTokenizer
+from rouge import Rouge
 
 def sequential_split(text:str, tokenizer:AutoTokenizer,
                      length:int, overlap:int)->List[str]:
@@ -12,6 +13,37 @@ def sequential_split(text:str, tokenizer:AutoTokenizer,
         chunk = tokenizer.decode(text_ids[i:i+length])
         chunks.append(chunk)
     return chunks
+
+def EM_score(pred, gold):
+    return standardize_answer(pred) == standardize_answer(gold)
+
+def standardize_answer(answer):
+    return answer.strip().lower()
+
+def RL_score(pred, gold):
+    """
+    Calculate Rouge-L score using rouge library
+    Args:
+        pred: prediction string
+        gold: gold reference string
+    Returns:
+        float: Rouge-L F1 score
+    """
+    # Standardize inputs
+    pred = standardize_answer(pred)
+    gold = standardize_answer(gold)
+    
+    # Handle empty strings
+    if not pred or not gold:
+        return 0.0
+    
+    rouge = Rouge()
+    try:
+        scores = rouge.get_scores(pred, gold)[0]
+        return round(scores['rouge-l']['f'], 4)  # 取4位小数
+    except:
+        return 0.0
+
 
 import time
 import multiprocessing as mp
@@ -52,3 +84,16 @@ def timed(timer: Timer, name: Optional[str] = None):
                 return func(*args, **kwargs)
         return wrapper
     return decorator
+
+if __name__ == "__main__":
+    print(RL_score("The answer is 10.", "The answer is 10."))
+    print(RL_score("The answer is 10.", "The answer is 11."))
+    print(RL_score("The answer is 10.", "The answer is 100."))
+    print(RL_score("The answer is 10.", "The answer is 100."))
+    print(RL_score("The answer is 10.", "The answer is 100."))
+
+    print(EM_score("The answer is 10.", "The answer is 10."))
+    print(EM_score("The answer is 10.", "The answer is 11."))
+    print(EM_score("The answer is 10.", "The answer is 100."))
+    print(EM_score("The answer is 10.", "The answer is 100."))
+    print(EM_score("The answer is 10.", "The answer is 100."))
