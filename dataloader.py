@@ -128,13 +128,14 @@ class test_loader:
         self.dataset = self._initialize_dataset()
     
     def _initialize_dataset(self):
-        dataset = {45:{}}
-        doc_path = os.path.join(self.docpath, "CopyrightProtected","B45.txt")
-        qa_path = os.path.join(self.qapath, "CopyrightProtected", "B45.json")
+        dataset = {0:{},1:{}}
+        doc_path = os.path.join(self.docpath, "CopyrightProtected","B00.txt")
+        qa_path = os.path.join(self.qapath, "CopyrightProtected", "B00.json")
         with open(doc_path, "r") as infile:
-            dataset[45]["book"] = infile.read()
+            dataset[0]["book"] = infile.read()
         with open(qa_path, "r") as infile:
-            dataset[45]["qa"] = json.loads(infile.read())
+            dataset[0]["qa"] = json.loads(infile.read())
+        
         return dataset
     
     def _format_qa(self, qa_dict):
@@ -156,8 +157,6 @@ class test_loader:
         return formatted_qa
 
     def __getitem__(self, index):
-        assert isinstance(index, int), "Index must be an integer"
-        assert index <= 89, "Index out of bounds"
         to_return = {}
         to_return["book"] = self.dataset[index]["book"]
         to_return["qa"] = self._format_qa(self.dataset[index]["qa"])
@@ -175,4 +174,4 @@ if __name__ == "__main__":
     loader = NovelQALoader("NovelQA")
     print(loader[0])
     loader = test_loader("NovelQA")
-    print(loader[45])    
+    print(loader[0])    
