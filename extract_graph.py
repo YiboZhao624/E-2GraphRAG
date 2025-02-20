@@ -227,12 +227,12 @@ def save_index(result, cache_path:str):
     with open(cache_path, "w") as f:
         json.dump(result, f)
     
-def extract_graph(text:List[str], cache_path:str, nlp:spacy.Language):
-    if os.path.exists(os.path.join(cache_path, "graph.json")) and os.path.exists(os.path.join(cache_path, "index.json")):
-        return load_cache(cache_path)
+def extract_graph(text:List[str], cache_folder:str, nlp:spacy.Language):
+    if os.path.exists(os.path.join(cache_folder, "graph.json")) and os.path.exists(os.path.join(cache_folder, "index.json")):
+        return load_cache(cache_folder)
     else:
-        graph_file_path = os.path.join(cache_path, "graph.json")
-        index_file_path = os.path.join(cache_path, "index.json")
+        graph_file_path = os.path.join(cache_folder, "graph.json")
+        index_file_path = os.path.join(cache_folder, "index.json")
 
         edges = []
         index = {}
