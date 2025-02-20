@@ -82,7 +82,7 @@ def naive_extract_graph(text:str, nlp:spacy.Language):
     }
 
 
-def build_graph(triplets: List[List[str, str, int]]) -> nx.Graph:
+def build_graph(triplets: List[Tuple[str, str, int]]) -> nx.Graph:
     '''
     build the graph from the triplets, merging weights of duplicate edges
     Args:
@@ -228,7 +228,7 @@ def save_index(result, cache_path:str):
         json.dump(result, f)
     
 def extract_graph(text:List[str], cache_path:str, nlp:spacy.Language):
-    if os.path.exists(cache_path):
+    if os.path.exists(os.path.join(cache_path, "graph.json")) and os.path.exists(os.path.join(cache_path, "index.json")):
         return load_cache(cache_path)
     else:
         graph_file_path = os.path.join(cache_path, "graph.json")
