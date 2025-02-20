@@ -20,6 +20,7 @@ class NovelQALoader:
         self.qapath = os.path.join(path, "Data")
         self.docpath = os.path.join(path, "Books")
         self.dataset = self._initialize_dataset()
+        self.available_ids = list(self.dataset.keys())
     
     def _initialize_dataset(self):
         dataset = {}
@@ -58,10 +59,7 @@ class NovelQALoader:
         return formatted_qa
 
     def __getitem__(self, index):
-        assert isinstance(index, int), "Index must be an integer"
-        assert index <= 89, "Index out of bounds"
-        print(index)
-        print(self.dataset[index])
+        index = self.available_ids[index]
         to_return = {}
         to_return["book"] = self.dataset[index]["book"]
         to_return["qa"] = self._format_qa(self.dataset[index]["qa"])
@@ -104,8 +102,6 @@ class NarrativeQALoader:
         return formatted_dataset
     
     def __getitem__(self, index):
-        assert isinstance(index, int), "Index must be an integer"
-        assert index <= 89, "Index out of bounds"
         return self.dataset[self.available_ids[index]]
 
 
@@ -129,8 +125,8 @@ class test_loader:
     
     def _initialize_dataset(self):
         dataset = {0:{},1:{}}
-        doc_path = os.path.join(self.docpath, "CopyrightProtected","B00.txt")
-        qa_path = os.path.join(self.qapath, "CopyrightProtected", "B00.json")
+        doc_path = os.path.join(self.docpath, "PublicDomain","B00.txt")
+        qa_path = os.path.join(self.qapath, "PublicDomain", "B00.json")
         with open(doc_path, "r") as infile:
             dataset[0]["book"] = infile.read()
         with open(qa_path, "r") as infile:
