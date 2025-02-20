@@ -122,7 +122,8 @@ class test_loader:
         self.qapath = os.path.join(path, "Data")
         self.docpath = os.path.join(path, "Books")
         self.dataset = self._initialize_dataset()
-    
+        self.available_ids = list(self.dataset.keys())
+
     def _initialize_dataset(self):
         dataset = {0:{},1:{}}
         doc_path = os.path.join(self.docpath, "PublicDomain","B00.txt")
