@@ -1,6 +1,7 @@
 from GlobalConfig import *
 from typing import List
 import json
+import os
 from transformers import AutoTokenizer, pipeline
 from prompt_dict import Prompts
 from utils import sequential_split# for test.
@@ -35,7 +36,7 @@ def summarize_leaf(text:str, llm:pipeline,)->List[str]:
     '''
     Summarize the text into chunks.
     '''
-    prompt = Prompts["summarize_details"].format(text=text)
+    prompt = Prompts["summarize_details"].format(content=text)
     res = llm(prompt)
     return res
 
@@ -43,15 +44,18 @@ def summarize_summary(text:str, llm:pipeline,)->List[str]:
     '''
     Summarize the summary into chunks.
     '''
-    prompt = Prompts["summarize_summary"].format(text=text)
+    prompt = Prompts["summarize_summary"].format(summary=text)
     res = llm(prompt)
     return res
 
-def build_tree(text_chunks:List[str], llm:pipeline, cache_path:str,
+def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
                tokenizer:AutoTokenizer, length:int, overlap:int, merge_num:int)->dict:
     '''
     Build the tree from the text.
     '''
+    if os.path.exists(os.path.join(cache_folder, "tree.json")):
+        return load_cache_summary(os.path.join(cache_folder, "tree.json"))
+
     cache = {}
     
     # leaf ids in the format of "leaf_{i}"
@@ -74,7 +78,7 @@ def build_tree(text_chunks:List[str], llm:pipeline, cache_path:str,
             "parent": [],
         }
         summary_id_count += 1
-        for j in range(i, i+merge_num):
+        for j in range(i, min(i+merge_num, len(text_chunks))):
             cache["leaf_{}".format(j)]["parent"]="summary_{}".format(summary_id_count)
 
     to_summarize = [f"summary_0_{i}" for i in range(summary_id_count)]
@@ -94,14 +98,14 @@ def build_tree(text_chunks:List[str], llm:pipeline, cache_path:str,
                 "parent": [],
             }
             new_summary_id_count += 1
-            for j in range(i, i+merge_num):
+            for j in range(i, min(i+merge_num, len(to_summarize))):
                 cache["summary_{}_{}".format(level-1, j)]["parent"] = f"summary_{level}_{new_summary_id_count}"
         # update the to_summarize list.
         to_summarize = [f"summary_{level}_{i}" for i in range(new_summary_id_count)]
         level += 1
     
     # save the cache.
-    with open(cache_path, "w", encoding="utf-8") as f:
+    with open(os.path.join(cache_folder, "tree.json"), "w", encoding="utf-8") as f:
         json.dump(cache, f, ensure_ascii=False)
     return cache
 
