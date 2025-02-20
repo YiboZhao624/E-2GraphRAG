@@ -1,10 +1,10 @@
 from extract_graph import naive_extract_graph
-from typing import List
+from typing import List, Tuple
 from itertools import combinations
 import networkx as nx
 import faiss
 import spacy
-
+from collections import defaultdict
 class Retriever:
     def __init__(self, cache_tree, G:nx.Graph, index, nlp:spacy.Language, **kwargs) -> None:
         # index is the noun to chunks index.
@@ -48,15 +48,69 @@ class Retriever:
     def get_chunks(self, entities:List[str]) -> List[str]:
         # get the chunks from the cache tree.
         chunk_ids = []
-        # TODO:这里是把所有的entity都加进去了，需要优化。
-        for entity in entities:
-            if entity in self.index.keys():
-                chunk_ids.extend(self.index[entity])
         
+        for entity in entities:
+            if isinstance(entity, str):
+                if entity in self.index.keys():
+                    chunk_ids.extend(self.index[entity])
+            elif isinstance(entity, tuple):
+                chunk_ids_set = set()
+                for e in entity:
+                    if e in self.index.keys():
+                        if chunk_ids_set is None:
+                            chunk_ids_set = set(self.index[e])
+                        else:
+                            chunk_ids_set = chunk_ids_set & set(self.index[e])
+                chunk_ids.extend(list(chunk_ids_set))
+
         chunks = []
         for chunk_id in chunk_ids:
             chunks.append(self.cache_tree[chunk_id]["text"])
+
         return chunks
+    
+    def get_shortest_path(self, entities:List[str], k) -> List[str]:
+        # get the shortest path between the entities.
+        shortest_path_pairs = []
+        for head, tail in combinations(entities, 2):
+            if head in self.G.nodes() and tail in self.G.nodes():
+                shortest_path = nx.shortest_path(self.G, head, tail)
+                if len(shortest_path) <= k:
+                    shortest_path_pairs.append((head, tail))
+
+        # shortest_path_pairs = self.merge_tuples(shortest_path_pairs)
+        return shortest_path_pairs
+
+    def merge_tuples(self, lst):
+        # 用字典来跟踪每个实体的连接
+        graph = defaultdict(set)
+        
+        # 构建实体间的关系图
+        for a, b in lst:
+            graph[a].add(b)
+            graph[b].add(a)
+        
+        # 用来存储已处理的元组
+        visited = set()
+        result = []
+        
+        # 遍历所有的实体，寻找联通的元组
+        def dfs(entity, cluster):
+            if entity in visited:
+                return
+            visited.add(entity)
+            cluster.add(entity)
+            for neighbor in graph[entity]:
+                dfs(neighbor, cluster)
+        
+        # 遍历所有的元组，合并相关的实体
+        for a, b in lst:
+            if a not in visited:
+                cluster = set()
+                dfs(a, cluster)
+                result.append(tuple(sorted(cluster)))
+        
+        return result
 
     def query(self, query, **kwargs):
         
@@ -66,10 +120,15 @@ class Retriever:
 
         if kwargs.get("related_entities", False):
             # get related entities.
-            related_entities = self.get_related_entities(entities)
+            entities = self.get_related_entities(entities)
+
+        if kwargs.get("shortest_path", True):
+            # get the shortest path between the entities.
+            shortest_path = self.get_shortest_path(entities, kwargs.get("shortest_path_k", 4))
+            entities = shortest_path
 
         # use the entities to get the chunks
-        chunks = self.get_chunks(self.cache_tree, self.index, entities)
+        chunks = self.get_chunks(entities)
     
         # search for the other chunks.
         # TODO: using faiss to search for the other chunks. maybe ablation study.
@@ -87,7 +146,7 @@ class Retriever:
 
         if kwargs.get("debug", False):
             result["entities"] = entities
-            result["related_entities"] = related_entities
+            result["related_entities"] = entities
 
         return result
         
