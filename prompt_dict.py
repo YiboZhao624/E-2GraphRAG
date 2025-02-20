@@ -17,17 +17,25 @@ Prompts = {
     Now, please summarize the summary based on the question.
     Summary: """,
 
-    "QA_prompt_options":"""You are a helpful assistant that answers questions about a novel.
-    You will be given a novel and a question.
-    You need to answer the question based on the novel.
-    Here is the novel:
-    Novel: {novel}
-    Here is the question:
-    Question: {question}
-    """,
+    "QA_prompt_options":\
+"""You are a helpful assistant, you are given a question, please answer the question based on the given evidences. The answer should be an option among "A", "B", "C", and "D" that supported by the given evidences and matches the question. You should not assume any information beyond the evidence. You should only output the option.
+
+Question: {question}
+Evidence: {evidence}
+
+Answer: """,
 
     "QA_prompt_answer":\
-"""You are a helpful assistant, you are given a question, please answer the question. The answer should be a short paragraph that captures the main idea, main events, and main characters of the question. You should not include any information that is not in the question. You should only output the answer. There will be two examples:
+"""You are a helpful assistant, you are given a question, please answer the question based on the given evidences. The answer should be a short sentence that supported by the given edidences and matches the requirements of the question. You should not assume any information beyond the evidence. You should only output the answer.
+
+Question: {question}
+Evidence: {evidence}
+
+Answer: """
+}
+
+
+"""There will be two examples:
 
 Example - character relationship:
 Question: What is the relationship between the Steve and the painter?
@@ -46,9 +54,4 @@ Evidence:
 Answer: The painter met Steve once.
 
 Now, please answer the following question with the given evidences:
-
-Question: {question}
-Evidence: {evidence}
-
-Answer: """
-}
+"""
