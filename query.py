@@ -5,6 +5,8 @@ import networkx as nx
 import faiss
 import spacy
 from collections import defaultdict
+
+
 class Retriever:
     def __init__(self, cache_tree, G:nx.Graph, index, nlp:spacy.Language, **kwargs) -> None:
         # index is the noun to chunks index.
@@ -111,12 +113,46 @@ class Retriever:
                 result.append(tuple(sorted(cluster)))
         
         return result
+    
+    def get_father_chunks(self, shortest_path_pairs:List[Tuple[str, str]]) -> List[str]:
+        # w, by input the shortest path pairs, get the father nodes.
+
+        pass
+
+    def get_leaf_chunks(self, father_nodes:List[str]) -> List[str]:
+        # get the leaf chunks from the father nodes.
+        # get the direct children of the father nodes.
+        pass
+
+    def get_neighbor_chunks(self, leaf_nodes:List[str]) -> List[str]:
+        # get the neighbor chunks from the leaf nodes.
+        pass
 
     def query(self, query, **kwargs):
         
         entities = naive_extract_graph(query, self.nlp)
 
         entities = entities["nouns"]
+
+        if kwargs.get("wasd", True):
+            # initialize by shortest path
+            shortest_path = self.get_shortest_path(entities, kwargs.get("shortest_path_k", 4))
+            
+            # w step, get the chunks from the father of the leaves.
+            father_nodes = self.get_father_chunks(shortest_path)
+
+            # s step, get the leaf chunks.
+            leaf_nodes = self.get_leaf_chunks(father_nodes)
+
+            # ad step, search the neighbor of the leaf nodes.
+            neighbor_nodes = self.get_neighbor_chunks(leaf_nodes)
+
+            # merge the chunk_ids.
+            chunk_ids = list(set(neighbor_nodes))
+
+            # get the chunks.
+            chunks = self.get_chunks(chunk_ids)
+            return chunks
 
         if kwargs.get("related_entities", False):
             # get related entities.
