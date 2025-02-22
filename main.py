@@ -136,7 +136,7 @@ def main():
                 try:
                     # Process QA
                     G, index = graph
-                    retriever = Retriever(tree, G, index, load_nlp())
+                    retriever = Retriever(tree, G, index, load_nlp(), **configs["retriever"]["kwargs"])
                     res = []
                     
                     # answer the question.
@@ -146,9 +146,12 @@ def main():
                         try:
                             model_supplement = retriever.query(question, **configs["retriever"]["kwargs"])
                             evidences = model_supplement["chunks"]
-                            print(len(evidences))
-                            evidences = "\n".join(evidences)
-                            #TODO for debug.
+                            print("len_chunks: ", model_supplement["len_chunks"])
+                            print("entities: ", model_supplement["entities"])
+                            print("keys: ", model_supplement["keys"])
+                            # print(len(evidences))
+                            # evidences = "\n".join(evidences)
+                            # TODO for debug.
                             
                         except Exception as e:
                             print(f"Error occurred: {e}")
