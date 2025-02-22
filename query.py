@@ -1,11 +1,12 @@
 from extract_graph import naive_extract_graph
-from typing import List, Tuple
+from build_tree import sequential_merge
+from typing import List, Tuple, Dict
 from itertools import combinations
 import networkx as nx
 import faiss
 import spacy
 from collections import defaultdict
-
+from transformers import AutoTokenizer
 
 class Retriever:
     def __init__(self, cache_tree, G:nx.Graph, index, nlp:spacy.Language, **kwargs) -> None:
@@ -14,6 +15,12 @@ class Retriever:
         self.G = G
         self.index = index
         self.nlp = nlp
+        self.merge_num = kwargs.get("merge_num", 5)
+        self.min_count = kwargs.get("min_count", 2)
+        self.overlap = kwargs.get("overlap", 100)
+        self.tokenizer = kwargs.get("tokenizer")
+        print(self.tokenizer)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer)
         if kwargs.get("embedder", None) is not None:
             self.embedder = kwargs.get("embedder")
             self.faiss_index, self.docs = self._build_faiss_index()
@@ -49,27 +56,25 @@ class Retriever:
 
     def get_chunks(self, entities:List[str]) -> List[str]:
         # get the chunks from the cache tree.
-        chunk_ids = []
+        chunk_ids = {}
         
         for entity in entities:
             if isinstance(entity, str):
                 if entity in self.index.keys():
-                    chunk_ids.extend(self.index[entity])
+                    chunk_ids[entity] = self.index[entity]
             elif isinstance(entity, tuple):
                 chunk_ids_set = set()
+                entity_key = "_".join(entity)
                 for e in entity:
                     if e in self.index.keys():
-                        if chunk_ids_set is None:
+                        
+                        if chunk_ids_set == set():
                             chunk_ids_set = set(self.index[e])
                         else:
                             chunk_ids_set = chunk_ids_set & set(self.index[e])
-                chunk_ids.extend(list(chunk_ids_set))
+                chunk_ids[entity_key] = list(chunk_ids_set)
 
-        chunks = []
-        for chunk_id in chunk_ids:
-            chunks.append(self.cache_tree[chunk_id]["text"])
-
-        return chunks
+        return chunk_ids
     
     def get_shortest_path(self, entities:List[str], k) -> List[str]:
         # get the shortest path between the entities.
@@ -114,45 +119,126 @@ class Retriever:
         
         return result
     
-    def get_father_chunks(self, shortest_path_pairs:List[Tuple[str, str]]) -> List[str]:
+    def validate_by_checking_father_chunks(self, init_chunk_ids:Dict[str, List[str]]) -> Dict[str, List[str]]:
         # w, by input the shortest path pairs, get the father nodes.
+        valid_child_ids = {}
+        for key, chunk_ids in init_chunk_ids.items():
+            father_nodes = {}
+            for chunk_id in chunk_ids:
+                father_chunk_id = self.cache_tree[chunk_id]["parent"]
+                father_nodes.setdefault(father_chunk_id, []).append(chunk_id)
+            valid_leaf_nodes = [child_id_list for _, child_id_list in father_nodes.items()
+                               if len(child_id_list) >= self.min_count]
+            
+            valid_child_ids[key] = []
+            if len(valid_leaf_nodes) > 0:
+                for leaf_node in valid_leaf_nodes:
+                    valid_child_ids[key].extend(leaf_node)
+        
+        return valid_child_ids
 
-        pass
+    # def get_leaf_chunks(self, valid_father_nodes:List[str]) -> List[str]:
+    #     # get the leaf chunks from the father nodes.
+    #     # get the direct children of the father nodes.
+    #     leaf_nodes = []
+    #     for father_node in valid_father_nodes:
+    #         children = self.cache_tree[father_node]["children"]
+    #         leaf_nodes.extend([child for child in children if child in ])
 
-    def get_leaf_chunks(self, father_nodes:List[str]) -> List[str]:
-        # get the leaf chunks from the father nodes.
-        # get the direct children of the father nodes.
-        pass
+    def _detect_neighbor_nodes(self, keys:List[str], chunk_id: str) -> List[str]:
+        # detect the neighbor nodes of the chunk_id.
+        # return the neighbor nodes.
+        int_chunk_id = int(chunk_id.split("_")[-1])
+        front = True
+        back = True
+        neighbor_nodes = [chunk_id]
+        while front or back:
+            if front:
+                int_chunk_id -= 1
+                if int_chunk_id < 0 or "leaf_{}".format(int_chunk_id) not in keys:
+                    front = False
+                str_chunk_id = "leaf_{}".format(int_chunk_id)
+                append = True
+                for key in keys:
+                    if str_chunk_id not in self.index[key]:
+                        append = False
+                        front = False
+                        break
+                if append:
+                    neighbor_nodes.append(str_chunk_id)
+            if back:
+                int_chunk_id += 1
+                if int_chunk_id >= len(self.cache_tree) or "leaf_{}".format(int_chunk_id) not in keys:
+                    back = False
+                str_chunk_id = "leaf_{}".format(int_chunk_id)
+                append = True
+                for key in keys:
+                    if str_chunk_id not in self.index[key]:
+                        append = False
+                        back = False
+                        break
+                if append:
+                    neighbor_nodes.append(str_chunk_id)
+        return neighbor_nodes
 
     def get_neighbor_chunks(self, leaf_nodes:List[str]) -> List[str]:
         # get the neighbor chunks from the leaf nodes.
-        pass
+        all_neighbor_nodes = {}
+        for keys, chunk_ids in leaf_nodes.items():
+            key_list = list(keys.split("_"))
+            for chunk_id in chunk_ids:
+                neighbor_nodes = self._detect_neighbor_nodes(key_list, chunk_id)
+                all_neighbor_nodes.setdefault(keys, []).append(neighbor_nodes)
+        return all_neighbor_nodes
+
+    def get_contiguous_chunks(self, leaf_nodes:List[str]) -> str:
+        leaf_texts = []
+        for leaf_node in leaf_nodes:
+            leaf_text = self.cache_tree[leaf_node]["text"]
+            leaf_texts.append(leaf_text)
+        return sequential_merge(leaf_texts, self.tokenizer, self.overlap)
+
+    def format_res(self, res:Dict[str, List[str]]) -> str:
+        res_str = ""
+        for key, chunks in res.items():
+            res_str += "{}: {}\n".format(key, chunks)
+        return res_str
 
     def query(self, query, **kwargs):
         
-        entities = naive_extract_graph(query, self.nlp)
+        entities = naive_extract_graph(query.split("\n")[0], self.nlp)
 
         entities = entities["nouns"]
 
         if kwargs.get("wasd", True):
             # initialize by shortest path
-            shortest_path = self.get_shortest_path(entities, kwargs.get("shortest_path_k", 4))
+            shortest_path = self.get_shortest_path(entities, kwargs.get("shortest_path_k", kwargs.get("shortest_path_k", 4)))
             
-            # w step, get the chunks from the father of the leaves.
-            father_nodes = self.get_father_chunks(shortest_path)
+            # initialize the chunks.
+            init_chunk_ids = self.get_chunks(shortest_path)
+            
+            # w+s step, get the valid chunks by checking the father of the leaves.
+            valid_child_ids = self.validate_by_checking_father_chunks(init_chunk_ids)
+            
+            # a+d step, search the neighbor of the leaf nodes.
+            neighbor_nodes = self.get_neighbor_chunks(valid_child_ids)
+            
+            res = {}
+            chunk_count = 0
+            for key, chunk_ids in neighbor_nodes.items():
+                res[key] = []
+                for chunk_id_list in chunk_ids:
+                    res[key].append(self.get_contiguous_chunks(chunk_id_list))
+                    chunk_count += len(chunk_id_list)
+            res_str = self.format_res(res)
 
-            # s step, get the leaf chunks.
-            leaf_nodes = self.get_leaf_chunks(father_nodes)
-
-            # ad step, search the neighbor of the leaf nodes.
-            neighbor_nodes = self.get_neighbor_chunks(leaf_nodes)
-
-            # merge the chunk_ids.
-            chunk_ids = list(set(neighbor_nodes))
-
-            # get the chunks.
-            chunks = self.get_chunks(chunk_ids)
-            return chunks
+            result = {"chunks":res_str}
+            if kwargs.get("debug", False):
+                result["entities"] = entities
+                result["neighbor_nodes"] = neighbor_nodes
+                result["keys"] = list(neighbor_nodes.keys())
+                result["len_chunks"] = chunk_count
+            return result
 
         if kwargs.get("related_entities", False):
             # get related entities.
@@ -160,7 +246,7 @@ class Retriever:
 
         if kwargs.get("shortest_path", True):
             # get the shortest path between the entities.
-            shortest_path = self.get_shortest_path(entities, kwargs.get("shortest_path_k", 4))
+            shortest_path = self.get_shortest_path(entities, kwargs.get("shortest_path_k", kwargs.get("shortest_path_k", 4)))
             entities = shortest_path
 
         # use the entities to get the chunks
@@ -178,11 +264,12 @@ class Retriever:
             dense_chunks = [self.docs[i] for i in dense_chunks]
             chunks.extend(dense_chunks)
         
-        result = {"chunks":chunks}
+
+        res_str = "\n".join(chunks)
+        result = {"chunks":res_str}
 
         if kwargs.get("debug", False):
             result["entities"] = entities
-            result["related_entities"] = entities
-
+            result["len_chunks"] = len(chunks)
         return result
         
