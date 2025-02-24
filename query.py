@@ -81,7 +81,10 @@ class Retriever:
         shortest_path_pairs = []
         for head, tail in combinations(entities, 2):
             if head in self.G.nodes() and tail in self.G.nodes():
-                shortest_path = nx.shortest_path(self.G, head, tail)
+                try:
+                    shortest_path = nx.shortest_path(self.G, head, tail)
+                except nx.NetworkXNoPath:
+                    continue
                 if len(shortest_path) <= k:
                     shortest_path_pairs.append((head, tail))
 
