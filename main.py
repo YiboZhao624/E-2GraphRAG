@@ -13,6 +13,8 @@ import json
 import numpy as np
 import traceback
 import sys
+import argparse
+import time
 from process_utils import build_tree_task, extract_graph_task, clean_cuda_memory
 
 def parse_args():
@@ -30,7 +32,10 @@ def parse_args():
     # parser.add_argument("--batch_size", type=int, default=32)
     # parser.add_argument("--dataset_path", type=str, default="NovelQA")
     # args = parser.parse_args()
-    with open("config.yaml", "r") as f:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, default="config.yaml")
+    args = parser.parse_args()
+    with open(args.config, "r") as f:
         config = yaml.safe_load(f)
 
     return config
@@ -60,7 +65,7 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
             
             # 获取结果
             try:
-                build_res = build_future.get()
+                build_res, build_time_cost = build_future.get()
             except Exception as e:
                 print(f"构建树失败: {e}")
                 print(f"错误类型: {type(e).__name__}")
@@ -70,7 +75,7 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
                 raise e
     
             try:
-                extract_res = extract_future.get()
+                extract_res, extract_time_cost = extract_future.get()
             except Exception as e:
                 print(f"提取图失败: {e}")
                 print(f"错误类型: {type(e).__name__}")
@@ -80,9 +85,14 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
                 raise e
             
     print("-" * 15)
-    print(timer.summary())
+    print(f"total time: {timer['total']} seconds")
+    print(f"build time: {build_time_cost} seconds")
+    print(f"extract time: {extract_time_cost} seconds")
     print("-" * 15)
-
+    with open(os.path.join(cache_folder, "time_cost.txt"), "w") as f:
+        f.write(f"total time: ||{timer['total']}|| seconds\n")
+        f.write(f"build time: ||{build_time_cost}|| seconds\n")
+        f.write(f"extract time: ||{extract_time_cost}|| seconds\n")
     return build_res, extract_res
 
 def main():
@@ -140,11 +150,16 @@ def main():
                     res = []
                     
                     # answer the question.
-                    for qa_piece in qa:
+                    for i, qa_piece in enumerate(qa):
                         question = qa_piece["question"]
                         answer = qa_piece["answer"]
                         try:
+                            query_start_time = time.time()
                             model_supplement = retriever.query(question, **configs["retriever"]["kwargs"])
+                            query_end_time = time.time()
+                            with open(os.path.join(configs["paths"]["answer_path"], "query_time.txt"), "a") as f:
+                                f.write(f"question {i}: query time: {query_end_time - query_start_time}\n")
+
                             evidences = model_supplement["chunks"]
                             print("len_chunks: ", model_supplement["len_chunks"])
                             print("entities: ", model_supplement["entities"])
@@ -213,6 +228,8 @@ def main():
 
     except Exception as e:
         print(f"Error occurred: {e}")
+        print("traceback:")
+        print(traceback.format_exc())
         # Kill all child processes
         for child in mp.active_children():
             child.terminate()
