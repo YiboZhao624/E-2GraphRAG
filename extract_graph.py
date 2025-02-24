@@ -260,7 +260,7 @@ def extract_graph(text:List[str], cache_folder:str, nlp:spacy.Language):
         save_graph(edges, graph_file_path)
         save_index(index, index_file_path)
         extract_end_time = time.time()
-        return G, index, extract_end_time - extract_start_time
+        return (G, index), extract_end_time - extract_start_time
 
 if __name__ == "__main__":
     # nouns = [
