@@ -152,12 +152,14 @@ class Retriever:
         front = True
         back = True
         neighbor_nodes = [chunk_id]
+        front_int_chunk_id = int_chunk_id
+        back_int_chunk_id = int_chunk_id
         while front or back:
             if front:
-                int_chunk_id -= 1
-                if int_chunk_id < 0 or "leaf_{}".format(int_chunk_id) not in keys:
+                front_int_chunk_id = front_int_chunk_id - 1
+                if front_int_chunk_id < 0 or "leaf_{}".format(front_int_chunk_id) not in keys:
                     front = False
-                str_chunk_id = "leaf_{}".format(int_chunk_id)
+                str_chunk_id = "leaf_{}".format(front_int_chunk_id)
                 append = True
                 for key in keys:
                     if str_chunk_id not in self.index[key]:
@@ -167,10 +169,10 @@ class Retriever:
                 if append:
                     neighbor_nodes.append(str_chunk_id)
             if back:
-                int_chunk_id += 1
-                if int_chunk_id >= len(self.cache_tree) or "leaf_{}".format(int_chunk_id) not in keys:
+                back_int_chunk_id += 1
+                if "leaf_{}".format(back_int_chunk_id) not in keys:
                     back = False
-                str_chunk_id = "leaf_{}".format(int_chunk_id)
+                str_chunk_id = "leaf_{}".format(back_int_chunk_id)
                 append = True
                 for key in keys:
                     if str_chunk_id not in self.index[key]:
@@ -188,8 +190,36 @@ class Retriever:
             key_list = list(keys.split("_"))
             for chunk_id in chunk_ids:
                 neighbor_nodes = self._detect_neighbor_nodes(key_list, chunk_id)
-                all_neighbor_nodes.setdefault(keys, []).append(neighbor_nodes)
+                all_neighbor_nodes.setdefault(keys, []).extend(neighbor_nodes)
+        for key, chunk_lists in all_neighbor_nodes.items():
+            all_neighbor_nodes[key] = sorted(list(set(chunk_lists)))
         return all_neighbor_nodes
+
+    def merge_keys(self, neighbor_nodes:Dict[str, List[str]]) -> Dict[str, List[str]]:
+        # merge the nodes with different keys.
+        # return with the same format.
+        chunks_to_keys = defaultdict(set)
+        for key, chunk_lists in neighbor_nodes.items():
+            for chunk in chunk_lists:
+                chunks_to_keys[chunk].add(key)
+
+        merged_result = {}
+        for chunk, keys in chunks_to_keys.items():
+            # get the new key.
+            if len(keys) > 1:
+                all_entities = set()
+                for key in keys:
+                    all_entities.update(key.split("_"))
+                new_key = "_".join(sorted(all_entities))
+            else:
+                new_key = keys.pop()
+            # add the chunk to the new key.
+            if new_key in merged_result.keys():
+                merged_result.setdefault(new_key, []).append(chunk)
+            else:
+                merged_result[new_key] = [chunk]
+        return merged_result
+
 
     def get_contiguous_chunks(self, leaf_nodes:List[str]) -> str:
         leaf_texts = []
@@ -219,17 +249,19 @@ class Retriever:
             
             # w+s step, get the valid chunks by checking the father of the leaves.
             valid_child_ids = self.validate_by_checking_father_chunks(init_chunk_ids)
-            
+            # print("valid_child_ids", valid_child_ids)
             # a+d step, search the neighbor of the leaf nodes.
             neighbor_nodes = self.get_neighbor_chunks(valid_child_ids)
-            
+            # print("neighbor_nodes", neighbor_nodes)
+            # merge the nodes with different keys.
+            neighbor_nodes = self.merge_keys(neighbor_nodes)
+            print("merged neighbor_nodes", neighbor_nodes)
+
             res = {}
             chunk_count = 0
             for key, chunk_ids in neighbor_nodes.items():
-                res[key] = []
-                for chunk_id_list in chunk_ids:
-                    res[key].append(self.get_contiguous_chunks(chunk_id_list))
-                    chunk_count += len(chunk_id_list)
+                res[key] = chunk_ids
+                chunk_count += len(chunk_ids)
             res_str = self.format_res(res)
 
             result = {"chunks":res_str}
