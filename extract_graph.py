@@ -11,6 +11,7 @@ from typing import List, Tuple
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from sklearn.cluster import DBSCAN
+import time
 
 def load_nlp():
     try:
@@ -228,8 +229,9 @@ def save_index(result, cache_path:str):
         json.dump(result, f)
     
 def extract_graph(text:List[str], cache_folder:str, nlp:spacy.Language):
+    extract_start_time = time.time()
     if os.path.exists(os.path.join(cache_folder, "graph.json")) and os.path.exists(os.path.join(cache_folder, "index.json")):
-        return load_cache(cache_folder)
+        return load_cache(cache_folder), -1
     else:
         graph_file_path = os.path.join(cache_folder, "graph.json")
         index_file_path = os.path.join(cache_folder, "index.json")
@@ -257,7 +259,8 @@ def extract_graph(text:List[str], cache_folder:str, nlp:spacy.Language):
         # save the graph and index.
         save_graph(edges, graph_file_path)
         save_index(index, index_file_path)
-        return G, index
+        extract_end_time = time.time()
+        return G, index, extract_end_time - extract_start_time
 
 if __name__ == "__main__":
     # nouns = [
