@@ -4,7 +4,8 @@ import json
 import os
 from transformers import AutoTokenizer, pipeline
 from prompt_dict import Prompts
-from utils import sequential_split# for test.
+from utils import sequential_split, Timer
+import time
 
 def sequential_merge(chunks:List[str], 
                      tokenizer:AutoTokenizer,
@@ -49,12 +50,13 @@ def summarize_summary(text:str, llm:pipeline,)->List[str]:
     return res
 
 def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
-               tokenizer:AutoTokenizer, length:int, overlap:int, merge_num:int)->dict:
+               tokenizer:AutoTokenizer, length:int, overlap:int, merge_num:int):
     '''
     Build the tree from the text.
     '''
+    build_start_time = time.time()
     if os.path.exists(os.path.join(cache_folder, "tree.json")):
-        return load_cache_summary(os.path.join(cache_folder, "tree.json"))
+        return load_cache_summary(os.path.join(cache_folder, "tree.json")), -1
 
     cache = {}
     
@@ -106,8 +108,10 @@ def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
     
     # save the cache.
     with open(os.path.join(cache_folder, "tree.json"), "w", encoding="utf-8") as f:
-        json.dump(cache, f, ensure_ascii=False)
-    return cache
+        json.dump(cache, f, ensure_ascii=False, indent=4)
+    build_end_time = time.time()
+    return_time = build_end_time - build_start_time
+    return cache, return_time
 
 def test():
     tokenizer = AutoTokenizer.from_pretrained(Qwen2_5_14B_Instruct)
