@@ -212,7 +212,7 @@ def main():
                     # Save results
                     res_path = os.path.join(configs["paths"]["answer_path"],configs["dataset"]["dataset_name"], f"book_{i}.json")
                     with open(res_path, "w") as f:
-                        json.dump(res, f)
+                        json.dump(res, f, indent=4)
                 
                 finally:
                     # Clean up QA resources
