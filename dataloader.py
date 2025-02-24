@@ -125,7 +125,7 @@ class test_loader:
         self.available_ids = list(self.dataset.keys())
 
     def _initialize_dataset(self):
-        dataset = {0:{},1:{}}
+        dataset = {0:{}}
         doc_path = os.path.join(self.docpath, "PublicDomain","B00.txt")
         qa_path = os.path.join(self.qapath, "PublicDomain", "B00.json")
         with open(doc_path, "r") as infile:
@@ -160,7 +160,7 @@ class test_loader:
         return to_return
 
     def __len__(self):
-        return len(self.dataset)
+        return 1
 
 
 
