@@ -23,8 +23,17 @@ def build_tree_task(args):
         llm_pipeline = pipeline("text-generation", model=llm, tokenizer=tokenizer, device=llm_device)
         
         # Process
-        result = build_tree(text, llm_pipeline, cache_folder, tokenizer, length, overlap, merge_num)
-        return result
+        result, time_cost = build_tree(text, llm_pipeline, cache_folder, tokenizer, length, overlap, merge_num)
+        print(f"build tree task result type: {type(result)}")
+        print(f"build tree task time cost: {time_cost}, -1 means load from cache.")
+        return result, time_cost
+    except Exception as e:
+        print(f"build tree task error: {e}")
+        print(f"{type(e).__name__}")
+        print(f"{e.args}")
+        import traceback
+        print(f"build tree task error stack:\n{traceback.format_exc()}")
+        raise e
     finally:
         # Clean up
         del llm_pipeline
@@ -37,8 +46,10 @@ def extract_graph_task(args):
     try:
         # Load NLP model in subprocess
         nlp = load_nlp()
-        result = extract_graph(text, cache_folder, nlp)
-        return result
+        (result, index), time_cost = extract_graph(text, cache_folder, nlp)
+        print(f"extract graph task result type: {type(result)}")
+        print(f"extract graph task time cost: {time_cost}, -1 means load from cache.")
+        return (result, index), time_cost
     finally:
         # Clean up
         del nlp 
