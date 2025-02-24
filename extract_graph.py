@@ -222,11 +222,11 @@ def load_cache(cache_path:str):
 
 def save_graph(result, cache_path:str):
     with open(cache_path, "w") as f:
-        json.dump(result, f)
+        json.dump(result, f, indent=4)
 
 def save_index(result, cache_path:str):
     with open(cache_path, "w") as f:
-        json.dump(result, f)
+        json.dump(result, f, indent=4)
     
 def extract_graph(text:List[str], cache_folder:str, nlp:spacy.Language):
     extract_start_time = time.time()
