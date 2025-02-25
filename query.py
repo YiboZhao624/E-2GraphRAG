@@ -165,7 +165,7 @@ class Retriever:
                 str_chunk_id = "leaf_{}".format(front_int_chunk_id)
                 append = True
                 for key in keys:
-                    if str_chunk_id not in self.index[key]:
+                    if str_chunk_id not in self.index.get(key, []):
                         append = False
                         front = False
                         break
@@ -178,7 +178,7 @@ class Retriever:
                 str_chunk_id = "leaf_{}".format(back_int_chunk_id)
                 append = True
                 for key in keys:
-                    if str_chunk_id not in self.index[key]:
+                    if str_chunk_id not in self.index.get(key, []):
                         append = False
                         back = False
                         break
