@@ -148,6 +148,7 @@ def main():
                     G, index = graph
                     retriever = Retriever(tree, G, index, load_nlp(), **configs["retriever"]["kwargs"])
                     res = []
+                    os.makedirs(configs["paths"]["answer_path"], exist_ok=True)
                     
                     # answer the question.
                     for i, qa_piece in enumerate(qa):
@@ -233,7 +234,7 @@ def main():
         # Kill all child processes
         for child in mp.active_children():
             child.terminate()
-            child.join()
+            child.join(timeout = 3)
         
         clean_cuda_memory(device_id)
         raise e
@@ -244,8 +245,9 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         print(f"Program terminated with error: {e}")
+        print(traceback.format_exc())
         # Ensure all processes are terminated
         for child in mp.active_children():
             child.terminate()
-            child.join()
+            child.join(timeout = 3)
         sys.exit(1)
