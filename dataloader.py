@@ -55,7 +55,7 @@ class NovelQALoader:
                 "id": qa_id,
                 "question": question_text,
                 "answer": answer,
-                "evidence": qa["Evidence"]
+                "evidence": qa["Evidences"]
             })
         return formatted_qa
 
