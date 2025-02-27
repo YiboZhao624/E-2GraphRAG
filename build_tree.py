@@ -84,6 +84,7 @@ def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
             cache["leaf_{}".format(j)]["parent"]="summary_{}".format(summary_id_count)
 
     to_summarize = [f"summary_0_{i}" for i in range(summary_id_count)]
+    to_summarize = [cache[i]["text"] for i in to_summarize]
     level = 1
     # do summarize for the rest levels.
     while len(to_summarize) > 1.2 * merge_num:
