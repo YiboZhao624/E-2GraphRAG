@@ -122,7 +122,8 @@ def main():
         res_folder = os.path.join(configs["paths"]["answer_path"],configs["dataset"]["dataset_name"])
         if not os.path.exists(res_folder):
             os.makedirs(res_folder)
-        res_path = os.path.join(res_folder, f"book_{i}.json")
+        book_id = dataset.available_ids[i]
+        res_path = os.path.join(res_folder, f"book_{book_id}.json")
         with open(res_path, "w") as f:
             json.dump(res, f, indent=4)
         total_res.append(res)
