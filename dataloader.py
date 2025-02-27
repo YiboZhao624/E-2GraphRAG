@@ -54,7 +54,8 @@ class NovelQALoader:
             formatted_qa.append({
                 "id": qa_id,
                 "question": question_text,
-                "answer": answer
+                "answer": answer,
+                "evidence": qa["Evidence"]
             })
         return formatted_qa
 
