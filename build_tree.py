@@ -38,7 +38,7 @@ def summarize_leaf(text:str, llm:pipeline,)->List[str]:
     Summarize the text into chunks.
     '''
     prompt = Prompts["summarize_details"].format(content=text)
-    res = llm(prompt)
+    res = llm(prompt).split("Summary: ")[-1].strip()
     return res
 
 def summarize_summary(text:str, llm:pipeline,)->List[str]:
@@ -46,7 +46,7 @@ def summarize_summary(text:str, llm:pipeline,)->List[str]:
     Summarize the summary into chunks.
     '''
     prompt = Prompts["summarize_summary"].format(summary=text)
-    res = llm(prompt)
+    res = llm(prompt).split("Summary: ")[-1].strip()
     return res
 
 def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
