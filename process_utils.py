@@ -20,7 +20,7 @@ def build_tree_task(args):
             from transformers import Qwen2ForCausalLM
             llm = Qwen2ForCausalLM.from_pretrained(llm_path)
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-        llm_pipeline = pipeline("text-generation", model=llm, tokenizer=tokenizer, device=llm_device)
+        llm_pipeline = pipeline("text-generation", model=llm, tokenizer=tokenizer, device=llm_device, max_new_tokens = 1200)
         
         # Process
         result, time_cost = build_tree(text, llm_pipeline, cache_folder, tokenizer, length, overlap, merge_num)
