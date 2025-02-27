@@ -38,7 +38,7 @@ def summarize_leaf(text:str, llm:pipeline,)->List[str]:
     Summarize the text into chunks.
     '''
     prompt = Prompts["summarize_details"].format(content=text)
-    res = llm(prompt).split("Summary: ")[-1].strip()
+    res = llm(prompt)[0]["generated_text"].split("Summary: ")[-1].strip()
     return res
 
 def summarize_summary(text:str, llm:pipeline,)->List[str]:
@@ -46,7 +46,7 @@ def summarize_summary(text:str, llm:pipeline,)->List[str]:
     Summarize the summary into chunks.
     '''
     prompt = Prompts["summarize_summary"].format(summary=text)
-    res = llm(prompt).split("Summary: ")[-1].strip()
+    res = llm(prompt)[0]["generated_text"].split("Summary: ")[-1].strip()
     return res
 
 def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
@@ -124,10 +124,13 @@ def test():
         assert len(tokenizer(chunk, return_tensors="pt")["input_ids"][0]) <= length,\
             "Test Sequential Split Error. Expected length: {}, Actual length: {}".format(length, len(tokenizer(chunk, return_tensors="pt")["input_ids"][0]))
     print("Test Sequential Split Passed.")
-    merged = sequential_merge(chunks, tokenizer, length, overlap)
+    merged = sequential_merge(chunks, tokenizer, overlap)
     assert merged == text, "Test Sequential Merge Error. Expected: {}, Actual: {}".format(text, merged)
     print("Test Sequential Merge Passed.")
-
+    llm = pipeline("text-generation", model=Qwen2_5_7B_Instruct, tokenizer=tokenizer, device="cuda:6", max_new_tokens = 1200)
+    summary = summarize_leaf(text, llm)
+    print(summary)
+    print(type(summary))
 
 
 
