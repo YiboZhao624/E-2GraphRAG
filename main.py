@@ -45,6 +45,8 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
     
     with timer.timer("total"):
         with mp.Pool(processes=2) as pool:
+            print("Starting parallel processing...")
+            
             # 准备参数
             build_args = (
                 configs["llm"]["llm_path"],
@@ -59,8 +61,10 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
             
             extract_args = (text, cache_folder)
             
-            # 异步执行任务
+            print("Launching build_tree_task...")
             build_future = pool.apply_async(build_tree_task, (build_args,))
+            
+            print("Launching extract_graph_task...")
             extract_future = pool.apply_async(extract_graph_task, (extract_args,))
             
             # 获取结果
@@ -89,10 +93,13 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
     print(f"build time: {build_time_cost} seconds")
     print(f"extract time: {extract_time_cost} seconds")
     print("-" * 15)
+    
+    # 保存时间信息
     with open(os.path.join(cache_folder, "time_cost.txt"), "w") as f:
         f.write(f"total time: ||{timer['total']}|| seconds\n")
         f.write(f"build time: ||{build_time_cost}|| seconds\n")
         f.write(f"extract time: ||{extract_time_cost}|| seconds\n")
+    
     return build_res, extract_res
 
 def main():
@@ -151,7 +158,7 @@ def main():
                     os.makedirs(configs["paths"]["answer_path"], exist_ok=True)
                     
                     # answer the question.
-                    for i, qa_piece in enumerate(qa):
+                    for j, qa_piece in enumerate(qa):
                         question = qa_piece["question"]
                         answer = qa_piece["answer"]
                         try:
@@ -215,6 +222,11 @@ def main():
                     with open(res_path, "w") as f:
                         json.dump(res, f, indent=4)
                 
+                except Exception as e:
+                    print(f"Error occurred during QA processing: {e}")
+                    print("traceback:")
+                    print(traceback.format_exc())
+                    raise e
                 finally:
                     # Clean up QA resources
                     del llm_pipeline
@@ -222,20 +234,24 @@ def main():
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                 
+        except Exception as e:
+            print(f"Error occurred during dataset processing: {e}")
+            print("traceback:")
+            print(traceback.format_exc())
+            raise e
         finally:
             del tokenizer
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
     except Exception as e:
-        print(f"Error occurred: {e}")
+        print(f"Error occurred in main: {e}")
         print("traceback:")
         print(traceback.format_exc())
-        # Kill all child processes
+        # Ensure all processes are terminated
         for child in mp.active_children():
             child.terminate()
-            child.join(timeout = 3)
-        
+            child.join(timeout=3)
         clean_cuda_memory(device_id)
         raise e
 
