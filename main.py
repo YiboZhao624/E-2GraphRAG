@@ -211,7 +211,8 @@ def main():
                         res.append({
                             "question": question,
                             "answer": answer,
-                            "output_text": output_text
+                            "output_text": output_text,
+                            "evidences": qa_piece.get("evidence", None)
                         })
                         
                     os.makedirs(configs["paths"]["answer_path"], exist_ok=True)
