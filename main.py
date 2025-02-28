@@ -47,7 +47,7 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
         with mp.Pool(processes=2) as pool:
             print("Starting parallel processing...")
             
-            # 准备参数
+            # 修改 build_args 添加 torch_dtype 参数
             build_args = (
                 configs["llm"]["llm_path"],
                 configs["llm"]["llm_device"],
@@ -56,7 +56,8 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
                 configs["llm"]["llm_path"],
                 length,
                 overlap,
-                merge_num
+                merge_num,
+                torch.float16  # 添加 torch_dtype 参数
             )
             
             extract_args = (text, cache_folder)
@@ -143,12 +144,25 @@ def main():
                 )
                 
                 # Load model for QA
-                llm = AutoModel.from_pretrained(configs["llm"]["llm_path"])
-                if "Qwen2Model" in str(type(llm)):
-                    from transformers import Qwen2ForCausalLM
-                    llm = Qwen2ForCausalLM.from_pretrained(configs["llm"]["llm_path"])
-                llm.eval()
-                llm_pipeline = pipeline("text-generation", model=llm, tokenizer=tokenizer, device=configs["llm"]["llm_device"])
+                if configs["dataset"]["dataset_name"] == "NovelQA":
+                    if "Qwen2" in configs["llm"]["llm_path"]:
+                        from transformers import Qwen2ForCausalLM
+                        llm = Qwen2ForCausalLM.from_pretrained(
+                            configs["llm"]["llm_path"],
+                            torch_dtype=torch.float16,  # 使用 float16
+                            low_cpu_mem_usage=True
+                        )
+                    else:
+                        llm = AutoModel.from_pretrained(
+                            configs["llm"]["llm_path"],
+                            torch_dtype=torch.float16  # 使用 float16
+                        )
+                    llm.eval()
+                    llm.to(configs["llm"]["llm_device"])
+                elif configs["dataset"]["dataset_name"] == "NarrativeQA":
+                    llm = pipeline("text-generation", model=configs["llm"]["llm_path"], tokenizer=tokenizer, device=configs["llm"]["llm_device"])
+                else:
+                    raise ValueError("Invalid dataset")
                 
                 try:
                     # Process QA
@@ -183,11 +197,11 @@ def main():
                             raise e
 
                         if configs["dataset"]["dataset_name"] == "NovelQA" or configs["dataset"]["dataset_name"] == "test":
-                            input_text = Prompts["QA_prompt_options"].format(question = question,
-                                                        evidence = evidences)
+                            input_text = Prompts["QA_prompt_options"].format(question = question,evidence = evidences)
                             # TODO: input the text to the model and get the probs of options.
                             inputs = tokenizer(input_text, return_tensors="pt").to(configs["llm"]["llm_device"])
                             with torch.no_grad():
+                                print("inputs token length: ", inputs.input_ids.shape[-1])
                                 output_logits = llm(**inputs).logits[0,-1]
                             probs = torch.nn.functional.softmax(
                             torch.tensor([
@@ -203,7 +217,7 @@ def main():
                         elif configs["dataset"]["dataset_name"] == "NarrativeQA":
                             input_text = Prompts["QA_prompt_answer"].format(question = question,
                                                         evidence = model_supplement)
-                            output = llm_pipeline(input_text)
+                            output = llm(input_text)
                             output_text = output[0]["generated_text"]
                             print(output_text)
                         else:
@@ -230,7 +244,6 @@ def main():
                     raise e
                 finally:
                     # Clean up QA resources
-                    del llm_pipeline
                     del llm
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
