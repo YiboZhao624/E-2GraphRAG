@@ -96,11 +96,12 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
     print("-" * 15)
     
     # 保存时间信息
-    with open(os.path.join(cache_folder, "time_cost.txt"), "w") as f:
-        f.write(f"total time: ||{timer['total']}|| seconds\n")
-        f.write(f"build time: ||{build_time_cost}|| seconds\n")
-        f.write(f"extract time: ||{extract_time_cost}|| seconds\n")
-    
+    if extract_time_cost != -1 and build_time_cost != -1:
+        with open(os.path.join(cache_folder, "time_cost.txt"), "w") as f:
+            f.write(f"total time: ||{timer['total']}|| seconds\n")
+            f.write(f"build time: ||{build_time_cost}|| seconds\n")
+            f.write(f"extract time: ||{extract_time_cost}|| seconds\n")
+        
     return build_res, extract_res
 
 def main():
