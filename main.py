@@ -42,53 +42,64 @@ def parse_args():
 
 def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_num):
     timer = Timer()
+    device_id = int(configs["llm"]["llm_device"].split(':')[1]) if ':' in configs["llm"]["llm_device"] else 0
     
-    with timer.timer("total"):
-        with mp.Pool(processes=2) as pool:
-            print("Starting parallel processing...")
-            
-            # 修改 build_args 添加 torch_dtype 参数
-            build_args = (
-                configs["llm"]["llm_path"],
-                configs["llm"]["llm_device"],
-                text,
-                cache_folder,
-                configs["llm"]["llm_path"],
-                length,
-                overlap,
-                merge_num,
-                torch.float16  # 添加 torch_dtype 参数
-            )
-            
-            extract_args = (text, cache_folder)
-            
-            print("Launching build_tree_task...")
-            build_future = pool.apply_async(build_tree_task, (build_args,))
-            
-            print("Launching extract_graph_task...")
-            extract_future = pool.apply_async(extract_graph_task, (extract_args,))
-            
-            # 获取结果
-            try:
-                build_res, build_time_cost = build_future.get()
-            except Exception as e:
-                print(f"构建树失败: {e}")
-                print(f"错误类型: {type(e).__name__}")
-                print(f"详细错误信息: {e.args}")
-                import traceback
-                print(f"错误堆栈:\n{traceback.format_exc()}")
-                raise e
+    try:
+        with timer.timer("total"):
+            with mp.Pool(processes=2) as pool:
+                print("Starting parallel processing...")
+                
+                # 修改 build_args 添加 torch_dtype 参数
+                build_args = (
+                    configs["llm"]["llm_path"],
+                    configs["llm"]["llm_device"],
+                    text,
+                    cache_folder,
+                    configs["llm"]["llm_path"],
+                    length,
+                    overlap,
+                    merge_num,
+                    torch.float16  # 添加 torch_dtype 参数
+                )
+                
+                extract_args = (text, cache_folder)
+                
+                print("Launching build_tree_task...")
+                build_future = pool.apply_async(build_tree_task, (build_args,))
+                
+                print("Launching extract_graph_task...")
+                extract_future = pool.apply_async(extract_graph_task, (extract_args,))
+                
+                # 获取结果
+                try:
+                    build_res, build_time_cost = build_future.get()
+                except Exception as e:
+                    print(f"构建树失败: {e}")
+                    print(f"错误类型: {type(e).__name__}")
+                    print(f"详细错误信息: {e.args}")
+                    import traceback
+                    print(f"错误堆栈:\n{traceback.format_exc()}")
+                    raise e
+        
+                try:
+                    extract_res, extract_time_cost = extract_future.get()
+                except Exception as e:
+                    print(f"提取图失败: {e}")
+                    print(f"错误类型: {type(e).__name__}")
+                    print(f"详细错误信息: {e.args}")
+                    import traceback
+                    print(f"错误堆栈:\n{traceback.format_exc()}")
+                    raise e
+
+    except Exception as e:
+        print(f"Error occurred in parallel_build_extract: {e}")
+        print("traceback:")
+        print(traceback.format_exc())
+        raise e
     
-            try:
-                extract_res, extract_time_cost = extract_future.get()
-            except Exception as e:
-                print(f"提取图失败: {e}")
-                print(f"错误类型: {type(e).__name__}")
-                print(f"详细错误信息: {e.args}")
-                import traceback
-                print(f"错误堆栈:\n{traceback.format_exc()}")
-                raise e
-            
+    finally:
+        clean_cuda_memory(device_id)
+
     print("-" * 15)
     print(f"total time: {timer['total']} seconds")
     print(f"build time: {build_time_cost} seconds")
@@ -200,10 +211,18 @@ def main():
                         if configs["dataset"]["dataset_name"] == "NovelQA" or configs["dataset"]["dataset_name"] == "test":
                             input_text = Prompts["QA_prompt_options"].format(question = question,evidence = evidences)
                             # TODO: input the text to the model and get the probs of options.
-                            inputs = tokenizer(input_text, return_tensors="pt").to(configs["llm"]["llm_device"])
-                            with torch.no_grad():
-                                print("inputs token length: ", inputs.input_ids.shape[-1])
-                                output_logits = llm(**inputs).logits[0,-1]
+                            try:
+                                inputs = tokenizer(input_text, return_tensors="pt").to(configs["llm"]["llm_device"])
+                                with torch.no_grad():
+                                    print("inputs token length: ", inputs.input_ids.shape[-1])
+                                    output_logits = llm(**inputs).logits[0,-1]
+                            except Exception as e:
+                                print(f"Error occurred: {e}")
+                                print("traceback:")
+                                print(traceback.format_exc())
+                                raise e
+                            finally:
+                                clean_cuda_memory(device_id)
                             probs = torch.nn.functional.softmax(
                             torch.tensor([
                                     output_logits[tokenizer("A").input_ids[-1]],
