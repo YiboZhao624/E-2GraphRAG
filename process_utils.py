@@ -1,7 +1,8 @@
+import os
 import torch
 from transformers import pipeline, AutoTokenizer, AutoModel
-from build_tree import build_tree
-from extract_graph import extract_graph, load_nlp
+from build_tree import build_tree, load_cache_summary
+from extract_graph import extract_graph, load_nlp, load_cache
 
 def clean_cuda_memory(device_id):
     """清理指定GPU设备的缓存"""
@@ -11,6 +12,8 @@ def clean_cuda_memory(device_id):
 
 def build_tree_task(args):
     llm_path, llm_device, text, cache_folder, tokenizer_name, length, overlap, merge_num, torch_dtype = args
+    if os.path.exists(os.path.join(cache_folder, "tree.json")):
+        return load_cache_summary(os.path.join(cache_folder, "tree.json")), -1
     try:
         device_id = int(llm_device.split(':')[1]) if ':' in llm_device else 0
         
@@ -45,6 +48,8 @@ def build_tree_task(args):
 
 def extract_graph_task(args):
     text, cache_folder = args
+    if os.path.exists(os.path.join(cache_folder, "graph.json")):
+        return load_cache(os.path.join(cache_folder, "graph.json")), -1
     try:
         # Load NLP model in subprocess
         nlp = load_nlp()
