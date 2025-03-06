@@ -18,8 +18,9 @@ class Retriever:
         self.merge_num = kwargs.get("merge_num", 5)
         self.min_count = kwargs.get("min_count", 2)
         self.overlap = kwargs.get("overlap", 100)
-        self.tokenizer = kwargs.get("tokenizer")
-        print(self.tokenizer)
+        #TODO a desk path.
+        self.tokenizer = kwargs.get("tokenizer","/root/shared_planing/LLM_model/Qwen2.5-7B-Instruct")
+        # print(self.tokenizer)
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer)
         if kwargs.get("embedder", None) is not None:
             self.embedder = kwargs.get("embedder")
@@ -122,7 +123,7 @@ class Retriever:
         
         return result
     
-    def validate_by_checking_father_chunks(self, init_chunk_ids:Dict[str, List[str]]) -> Dict[str, List[str]]:
+    def validate_by_checking_father_chunks(self, init_chunk_ids:Dict[str, List[str]], min_count:int=2) -> Dict[str, List[str]]:
         # w, by input the shortest path pairs, get the father nodes.
         valid_child_ids = {}
         for key, chunk_ids in init_chunk_ids.items():
@@ -131,7 +132,7 @@ class Retriever:
                 father_chunk_id = self.cache_tree[chunk_id]["parent"]
                 father_nodes.setdefault(father_chunk_id, []).append(chunk_id)
             valid_leaf_nodes = [child_id_list for _, child_id_list in father_nodes.items()
-                               if len(child_id_list) >= self.min_count]
+                               if len(child_id_list) >= min_count]
             
             valid_child_ids[key] = []
             if len(valid_leaf_nodes) > 0:
@@ -231,11 +232,58 @@ class Retriever:
             leaf_texts.append(leaf_text)
         return sequential_merge(leaf_texts, self.tokenizer, self.overlap)
 
+    def detect_contiguous_chunks(self, chunk_ids:List[str]) -> List[List[str]]:
+        # Detect the contiguous chunks from the chunk_ids,
+        # if there are contiguous chunks, return the list of the contiguous chunks.
+        # otherwise, the only id will be a list.
+        res = []
+        current_chunk = []
+
+        for chunk_id in chunk_ids:
+            # Extract the numeric part of the chunk_id
+            id_num = int(chunk_id.split("_")[1])
+            if not current_chunk:
+                current_chunk.append(chunk_id)
+            else:
+                # Check if the current id is contiguous with the last one
+                last_id_num = int(current_chunk[-1].split("_")[1])
+                if id_num == last_id_num + 1:
+                    current_chunk.append(chunk_id)
+                else:
+                    res.append(current_chunk)
+                    current_chunk = [chunk_id]
+
+        if current_chunk:
+            res.append(current_chunk)
+
+        return res
+
+
     def format_res(self, res:Dict[str, List[str]]) -> str:
         res_str = ""
         for key, chunks in res.items():
-            res_str += "{}: {}\n".format(key, chunks)
+            chunks = self.detect_contiguous_chunks(chunks)
+            for chunk_list in chunks:
+                str_of_list = self.get_contiguous_chunks(chunk_list)
+                res_str += "{}: {}\n".format(key, str_of_list)
         return res_str
+    
+    def str_chunkid_2_int_chunkid(self, str_chunk:str) -> int:
+        return int(str_chunk.split("_")[-1])
+
+    def wasd_step(self, entities:List[str], shortest_path_k:int=4, min_count:int=2)->Dict[str, List[str]]:
+        # initialize by shortest path
+        shortest_path = self.get_shortest_path(entities, shortest_path_k)
+        # initialize the chunks.
+        init_chunk_ids = self.get_chunks(shortest_path)
+        # w+s step, get the valid chunks by checking the father of the leaves.
+        valid_child_ids = self.validate_by_checking_father_chunks(init_chunk_ids, min_count)
+        # a+d step, search the neighbor of the leaf nodes.
+        neighbor_nodes = self.get_neighbor_chunks(valid_child_ids)
+        # merge the nodes with different keys.
+        neighbor_nodes = self.merge_keys(neighbor_nodes)
+        return neighbor_nodes
+
 
     def query(self, query, **kwargs):
         
@@ -244,34 +292,42 @@ class Retriever:
         entities = entities["nouns"]
 
         if kwargs.get("wasd", True):
-            # initialize by shortest path
-            shortest_path = self.get_shortest_path(entities, kwargs.get("shortest_path_k", kwargs.get("shortest_path_k", 4)))
-            
-            # initialize the chunks.
-            init_chunk_ids = self.get_chunks(shortest_path)
-            
-            # w+s step, get the valid chunks by checking the father of the leaves.
-            valid_child_ids = self.validate_by_checking_father_chunks(init_chunk_ids)
-            # print("valid_child_ids", valid_child_ids)
-            # a+d step, search the neighbor of the leaf nodes.
-            neighbor_nodes = self.get_neighbor_chunks(valid_child_ids)
-            # print("neighbor_nodes", neighbor_nodes)
-            # merge the nodes with different keys.
-            neighbor_nodes = self.merge_keys(neighbor_nodes)
-            print("merged neighbor_nodes", neighbor_nodes)
+            shortest_path_k = kwargs.get("shortest_path_k", 4)
+            min_count = kwargs.get("min_count", 2)
+            wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
 
             res = {}
             chunk_count = 0
-            for key, chunk_ids in neighbor_nodes.items():
+            for key, chunk_ids in wasd_res.items():
                 res[key] = chunk_ids
                 chunk_count += len(chunk_ids)
+            
+            flag = 0
+            while chunk_count > kwargs.get("max_chunk_setting", 25):
+                # if the chunk count is larger than the max chunk setting
+                # then change the setting, increase the min count and decrease the shortest path k.
+                if flag == 0:
+                    shortest_path_k -= 1
+                    flag = 1
+                else:
+                    min_count += 1
+                    flag = 0
+                
+                wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
+                chunk_count = 0
+                res = {}
+                for key, chunk_ids in wasd_res.items():
+                    res[key] = chunk_ids
+                    chunk_count += len(chunk_ids)
+
+            print("final chunk_count", chunk_count)
             res_str = self.format_res(res)
 
             result = {"chunks":res_str}
-            if kwargs.get("debug", False):
+            if kwargs.get("debug", True):
                 result["entities"] = entities
-                result["neighbor_nodes"] = neighbor_nodes
-                result["keys"] = list(neighbor_nodes.keys())
+                result["neighbor_nodes"] = res
+                result["keys"] = list(res.keys())
                 result["len_chunks"] = chunk_count
             return result
 
@@ -308,3 +364,36 @@ class Retriever:
             result["len_chunks"] = len(chunks)
         return result
         
+
+
+if __name__ == "__main__":
+    cache_tree = {}
+    for i in range(100):
+        cache_tree[f"leaf_{i}"] = {
+            "text": f"This is the text of the chunk {i}",
+            "parent": f"summary_{i//10}",
+            "children": None
+        }
+    for i in range(10):
+        cache_tree[f"summary_{i}"] = {
+            "text": f"This is the summary of the chunk {i}",
+            "parent": None,
+            "children": [f"leaf_{j}" for j in range(i*10, (i+1)*10)]
+        }
+    graph = nx.Graph()
+    for i in range(10):
+        graph.add_node(f"summary")
+        graph.add_node(f"novel")
+        graph.add_edge(f"summary", f"novel")
+
+
+    index = {}
+    index["summary"] = [f"leaf_{i}" for i in range(10)]
+    index["novel"] = [f"leaf_{i}" for i in range(5,10)]
+
+
+    import spacy
+    nlp = spacy.load("en_core_web_sm")
+
+    retriever = Retriever(cache_tree, graph, index, nlp)
+    print(retriever.query("What is the summary of the novel?"))
