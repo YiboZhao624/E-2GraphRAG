@@ -215,6 +215,12 @@ def main():
                                 inputs = tokenizer(input_text, return_tensors="pt").to(configs["llm"]["llm_device"])
                                 with torch.no_grad():
                                     print("inputs token length: ", inputs.input_ids.shape[-1])
+                                    if inputs.input_ids.shape[-1] > 10240 and model_supplement["len_chunks"] < 5:
+                                        print("\n\nERROR: the length of the input text is too long, please check the evidence.\n\n")
+                                        print("inputs: ", input_text)
+                                        print("\n\n")
+                                        print(model_supplement)
+                                        raise
                                     output_logits = llm(**inputs).logits[0,-1]
                             except Exception as e:
                                 print(f"Error occurred: {e}")
