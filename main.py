@@ -139,6 +139,9 @@ def main():
 
         try:
             for i, data_piece in enumerate(dataset):
+                if i < configs["resume"]["resumeIndex"]:
+                    continue
+
                 text = data_piece["book"]
                 text = sequential_split(text, tokenizer, configs["cluster"]["length"], configs["cluster"]["overlap"])
                 qa = data_piece["qa"]
@@ -195,9 +198,9 @@ def main():
                                 f.write(f"question {i}: query time: {query_end_time - query_start_time}\n")
 
                             evidences = model_supplement["chunks"]
-                            print("len_chunks: ", model_supplement["len_chunks"])
-                            print("entities: ", model_supplement["entities"])
-                            print("keys: ", model_supplement["keys"])
+                            print("len_chunks: ", model_supplement.get("len_chunks", 0))
+                            print("entities: ", model_supplement.get("entities", []))
+                            print("keys: ", model_supplement.get("keys", []))
                             # print(len(evidences))
                             # evidences = "\n".join(evidences)
                             # TODO for debug.
@@ -267,6 +270,7 @@ def main():
                     print(f"Error occurred during QA processing: {e}")
                     print("traceback:")
                     print(traceback.format_exc())
+                    print(f"TODO:Error occurred during book {i} processing. Set resumeIndex to {i}.")
                     raise e
                 finally:
                     # Clean up QA resources
