@@ -12,6 +12,7 @@ class Retriever:
     def __init__(self, cache_tree, G:nx.Graph, index, nlp:spacy.Language, **kwargs) -> None:
         # index is the noun to chunks index.
         self.cache_tree = cache_tree
+        self.collapse_tree = self._collapse_tree(self.cache_tree)
         self.G = G
         self.index = index
         self.nlp = nlp
@@ -28,6 +29,14 @@ class Retriever:
         else:
             self.embedder = None
             self.faiss_index = None
+
+    def _collapse_tree(self, cache_tree:Dict[str, Dict]) -> Dict[str, Dict]:
+        # collapse the tree.
+        # return the collapsed tree.
+        collapsed_tree = []
+        for key, value in self.cache_tree.items():
+            collapsed_tree.append(value["text"])
+        return collapsed_tree
 
     def _build_faiss_index(self):
         # build the faiss index.
@@ -258,7 +267,6 @@ class Retriever:
 
         return res
 
-
     def format_res(self, res:Dict[str, List[str]]) -> str:
         res_str = ""
         for key, chunks in res.items():
@@ -298,38 +306,47 @@ class Retriever:
 
             res = {}
             chunk_count = 0
+            chunk_counts_history = []
             for key, chunk_ids in wasd_res.items():
                 res[key] = chunk_ids
                 chunk_count += len(chunk_ids)
+            chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
             
-            flag = 0
-            while chunk_count > kwargs.get("max_chunk_setting", 25):
-                # if the chunk count is larger than the max chunk setting
-                # then change the setting, increase the min count and decrease the shortest path k.
-                if flag == 0:
-                    shortest_path_k -= 1
-                    flag = 1
-                else:
-                    min_count += 1
-                    flag = 0
-                
-                wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
-                chunk_count = 0
-                res = {}
-                for key, chunk_ids in wasd_res.items():
-                    res[key] = chunk_ids
-                    chunk_count += len(chunk_ids)
+            if chunk_count != 0:
+                flag = 0
+                while chunk_count > kwargs.get("max_chunk_setting", 25):
+                    # if the chunk count is larger than the max chunk setting
+                    # then change the setting, increase the min count and decrease the shortest path k.
+                    if flag == 0:
+                        shortest_path_k -= 1
+                        flag = 1
+                    else:
+                        min_count += 1
+                        flag = 0
+                    
+                    wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
+                    chunk_count = 0
+                    res = {}
+                    for key, chunk_ids in wasd_res.items():
+                        res[key] = chunk_ids
+                        chunk_count += len(chunk_ids)
+                    chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
+                print("final chunk_count", chunk_count)
+                res_str = self.format_res(res)
 
-            print("final chunk_count", chunk_count)
-            res_str = self.format_res(res)
-
-            result = {"chunks":res_str}
-            if kwargs.get("debug", True):
-                result["entities"] = entities
-                result["neighbor_nodes"] = res
-                result["keys"] = list(res.keys())
-                result["len_chunks"] = chunk_count
-            return result
+                result = {"chunks":res_str}
+                if kwargs.get("debug", True):
+                    result["entities"] = entities
+                    result["neighbor_nodes"] = res
+                    result["keys"] = list(res.keys())
+                    result["len_chunks"] = chunk_count
+                    result["chunk_counts_history"] = chunk_counts_history
+                return result
+            else:
+                result = {"chunks":""}
+                result["chunk_counts_history"] = chunk_counts_history
+                # TODO: using the collapse tree and dense retrieval to get the chunks.
+                return result
 
         if kwargs.get("related_entities", False):
             # get related entities.
