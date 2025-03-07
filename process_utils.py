@@ -49,7 +49,7 @@ def build_tree_task(args):
 def extract_graph_task(args):
     text, cache_folder = args
     if os.path.exists(os.path.join(cache_folder, "graph.json")):
-        return load_cache(os.path.join(cache_folder, "graph.json")), -1
+        return load_cache(cache_folder), -1
     try:
         # Load NLP model in subprocess
         nlp = load_nlp()
