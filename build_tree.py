@@ -73,7 +73,7 @@ def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
     summary_id_count = 0
     for i in range(0, len(text_chunks), merge_num):
         merged_chunks = sequential_merge(text_chunks[i:i+merge_num], tokenizer, overlap)
-        summary = summarize_leaf(merged_chunks, llm)[0]["generated_text"][len(merged_chunks):]
+        summary = summarize_leaf(merged_chunks, llm)
         cache["summary_0_{}".format(summary_id_count)] = {
             "text": summary,
             "children": [f"leaf_{j}" for j in range(i, i+merge_num)],
