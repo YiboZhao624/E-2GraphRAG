@@ -38,7 +38,7 @@ def summarize_leaf(text:str, llm:pipeline,)->List[str]:
     Summarize the text into chunks.
     '''
     prompt = Prompts["summarize_details"].format(content=text)
-    res = llm(prompt)[0]["generated_text"].split("Summary: ")[-1].strip()
+    res = llm(prompt)[0]["generated_text"][len(prompt):]
     return res
 
 def summarize_summary(text:str, llm:pipeline,)->List[str]:
@@ -46,7 +46,7 @@ def summarize_summary(text:str, llm:pipeline,)->List[str]:
     Summarize the summary into chunks.
     '''
     prompt = Prompts["summarize_summary"].format(summary=text)
-    res = llm(prompt)[0]["generated_text"].split("Summary: ")[-1].strip()
+    res = llm(prompt)[0]["generated_text"][len(prompt):]
     return res
 
 def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
@@ -73,7 +73,7 @@ def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
     summary_id_count = 0
     for i in range(0, len(text_chunks), merge_num):
         merged_chunks = sequential_merge(text_chunks[i:i+merge_num], tokenizer, overlap)
-        summary = summarize_leaf(merged_chunks, llm)
+        summary = summarize_leaf(merged_chunks, llm)[0]["generated_text"][len(merged_chunks):]
         cache["summary_0_{}".format(summary_id_count)] = {
             "text": summary,
             "children": [f"leaf_{j}" for j in range(i, i+merge_num)],
