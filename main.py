@@ -248,7 +248,8 @@ def main():
                                                         evidence = model_supplement)
                             output = llm(input_text)
                             output_text = output[0]["generated_text"]
-                            print(output_text)
+                            output_text = output_text[len(input_text):]
+                            print("output_text: ", output_text)
                         else:
                             raise ValueError("Invalid dataset")
                         res.append({
