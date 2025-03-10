@@ -312,7 +312,10 @@ class Retriever:
             if chunk_id in self.index.keys():
                 if set(self.index[chunk_id]) & set(entities):
                     filtered_chunk_ids.append(chunk_id)
-        return filtered_chunk_ids
+        res = {}
+        for entity in entities:
+            res[entity] = filtered_chunk_ids
+        return res
 
     def query(self, query, **kwargs):
         # step 1: extract the Entities from the query.
@@ -373,20 +376,24 @@ class Retriever:
                 return result
             else:
                 result = {"chunks":""}
-                query_embed = self.embedder(query)
+                query_embed = self.embedder.encode(query).reshape(1, -1) # need (1, -1) for faiss.
                 # using dense retrieval to get more condidate chunks.
                 distance, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = 25 *2)
+                # the normal faiss index return the (1, k) shape. squeeze it to (k,).
+                condidate_chunks_indexs = condidate_chunks_indexs[0]
                 # get the chunk ids from the collapse tree ids.
                 condidate_chunk_ids = [self.collapse_tree_ids[i] for i in condidate_chunks_indexs]
+
                 # filter the chunks that not contain the related entities.
                 filtered_chunk_ids = self.filter_chunk_by_entities(condidate_chunk_ids, entities)
+
                 # filter the chunks like wasd step.
                 filtered_chunk_ids = self.validate_by_checking_father_chunks(filtered_chunk_ids, min_count)
                 # get the contiguous chunks.
                 top2bottom_res = {}
                 chunk_count = 0
-                for filtered_chunk_id in filtered_chunk_ids:
-                    for entity in entities:
+                for entity, filtered_chunk_ids in filtered_chunk_ids.items():
+                    for filtered_chunk_id in filtered_chunk_ids:
                         contiguous_chunks = self._detect_neighbor_nodes(set(entity), filtered_chunk_id)
                         top2bottom_res.setdefault(entity, []).extend(contiguous_chunks)
                 for k, v in top2bottom_res.items():
@@ -401,8 +408,8 @@ class Retriever:
                         filtered_chunk_ids = self.validate_by_checking_father_chunks(filtered_chunk_ids, min_count)
                         top2bottom_res = {}
                         chunk_count = 0
-                        for filtered_chunk_id in filtered_chunk_ids:
-                            for entity in entities:
+                        for entity, filtered_chunk_ids in filtered_chunk_ids.items():
+                            for filtered_chunk_id in filtered_chunk_ids:
                                 contiguous_chunks = self._detect_neighbor_nodes(set(entity), filtered_chunk_id)
                                 top2bottom_res.setdefault(entity, []).extend(contiguous_chunks)
                         for k, v in top2bottom_res.items():
@@ -451,8 +458,8 @@ class Retriever:
 if __name__ == "__main__":
     import json
     from extract_graph import load_cache
-    cache_tree = json.load(open("cache/NovelQA/0/tree.json", "r"))
-    G, index = load_cache("cache/NovelQA/0")
+    cache_tree = json.load(open("cache/wo_faiss/NarrativeQA/02eb19e46391a42912c60b7d0a072fc8684dfbd6/tree.json", "r"))
+    G, index = load_cache("cache/wo_faiss/NarrativeQA/02eb19e46391a42912c60b7d0a072fc8684dfbd6")
     nlp = spacy.load("en_core_web_sm")
     retriever = Retriever(cache_tree, G, index, nlp)
     query = "What is the main character of the novel?"
