@@ -1,21 +1,23 @@
 from extract_graph import naive_extract_graph
 from build_tree import sequential_merge
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Set
 from itertools import combinations
 import networkx as nx
 import faiss
 import spacy
 from collections import defaultdict
 from transformers import AutoTokenizer
-
+from sentence_transformers import SentenceTransformer
 class Retriever:
     def __init__(self, cache_tree, G:nx.Graph, index, nlp:spacy.Language, **kwargs) -> None:
         # index is the noun to chunks index.
         self.cache_tree = cache_tree
-        self.collapse_tree = self._collapse_tree(self.cache_tree)
+        self.collapse_tree, self.collapse_tree_ids = self._collapse_tree(self.cache_tree)
         self.G = G
         self.index = index
+        self.inverse_index = self.get_inverse_index()
         self.nlp = nlp
+        self.device = kwargs.get("device", "cuda")
         self.merge_num = kwargs.get("merge_num", 5)
         self.min_count = kwargs.get("min_count", 2)
         self.overlap = kwargs.get("overlap", 100)
@@ -23,36 +25,52 @@ class Retriever:
         self.tokenizer = kwargs.get("tokenizer","/root/shared_planing/LLM_model/Qwen2.5-7B-Instruct")
         # print(self.tokenizer)
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer)
-        if kwargs.get("embedder", None) is not None:
-            self.embedder = kwargs.get("embedder")
-            self.faiss_index, self.docs = self._build_faiss_index()
+        if kwargs.get("embedder", "BAAI/bge-m3") is not None:
+            self.embedder = SentenceTransformer(kwargs.get("embedder", "BAAI/bge-m3"))
+            self.embedder.eval()
+            self.embedder.to(self.device)
+            self.faiss_index = self._build_faiss_index()
         else:
+            print("Warning: the embedder is set to None, dense retrieval is not implemented.")
             self.embedder = None
             self.faiss_index = None
+
+    def get_inverse_index(self):
+        # get the inverse index.
+        inverse_index = {}
+        for key, value in self.index.items():
+            for chunk_id in value:
+                inverse_index.setdefault(chunk_id, []).append(key)
+        return inverse_index
 
     def _collapse_tree(self, cache_tree:Dict[str, Dict]) -> Dict[str, Dict]:
         # collapse the tree.
         # return the collapsed tree.
         collapsed_tree = []
+        collapsed_tree_ids = []
         for key, value in self.cache_tree.items():
             collapsed_tree.append(value["text"])
-        return collapsed_tree
+            collapsed_tree_ids.append(key)
+        return collapsed_tree, collapsed_tree_ids
 
     def _build_faiss_index(self):
         # build the faiss index.
         # only used when the dense retrieval is implemented.
         # return the faiss index.
-        docs = []
-        for key, value in self.cache_tree.items():
-            docs.append(value["text"])
-        
+        docs = self.collapse_tree
         # use the embedder to embed the docs.
         # use the faiss to build the index.
         # return the faiss index.
-        doc_embeds = self.embedder(docs)
+        if self.embedder is None:
+            self.embedder = SentenceTransformer("BAAI/bge-m3")
+            self.embedder.eval()
+            self.embedder.to(self.device)
+            print("the embedder is not set, using the default embedder BAAI/bge-m3.")
+        doc_embeds = self.embedder.encode(docs, batch_size=32, device=self.device)
+        print("doc_embeds shape", doc_embeds.shape)
         vector_database = faiss.IndexFlatIP(doc_embeds.shape[1])
         vector_database.add(doc_embeds)
-        return vector_database, docs
+        return vector_database
 
     def get_related_entities(self, entities:List[str]) -> List[str]:
         related_entities = []
@@ -102,19 +120,15 @@ class Retriever:
         return shortest_path_pairs
 
     def merge_tuples(self, lst):
-        # 用字典来跟踪每个实体的连接
         graph = defaultdict(set)
         
-        # 构建实体间的关系图
         for a, b in lst:
             graph[a].add(b)
             graph[b].add(a)
         
-        # 用来存储已处理的元组
         visited = set()
         result = []
         
-        # 遍历所有的实体，寻找联通的元组
         def dfs(entity, cluster):
             if entity in visited:
                 return
@@ -123,7 +137,6 @@ class Retriever:
             for neighbor in graph[entity]:
                 dfs(neighbor, cluster)
         
-        # 遍历所有的元组，合并相关的实体
         for a, b in lst:
             if a not in visited:
                 cluster = set()
@@ -158,7 +171,7 @@ class Retriever:
     #         children = self.cache_tree[father_node]["children"]
     #         leaf_nodes.extend([child for child in children if child in ])
 
-    def _detect_neighbor_nodes(self, keys:List[str], chunk_id: str) -> List[str]:
+    def _detect_neighbor_nodes(self, keys:Set[str], chunk_id: str) -> List[str]:
         # detect the neighbor nodes of the chunk_id.
         # return the neighbor nodes.
         int_chunk_id = int(chunk_id.split("_")[-1])
@@ -170,7 +183,7 @@ class Retriever:
         while front or back:
             if front:
                 front_int_chunk_id = front_int_chunk_id - 1
-                if front_int_chunk_id < 0 or "leaf_{}".format(front_int_chunk_id) not in keys:
+                if front_int_chunk_id < 0 or self.inverse_index.get(front_int_chunk_id, []) & keys != keys:
                     front = False
                 str_chunk_id = "leaf_{}".format(front_int_chunk_id)
                 append = True
@@ -183,7 +196,7 @@ class Retriever:
                     neighbor_nodes.append(str_chunk_id)
             if back:
                 back_int_chunk_id += 1
-                if "leaf_{}".format(back_int_chunk_id) not in keys:
+                if self.inverse_index.get(back_int_chunk_id, []) & keys != keys:
                     back = False
                 str_chunk_id = "leaf_{}".format(back_int_chunk_id)
                 append = True
@@ -200,9 +213,9 @@ class Retriever:
         # get the neighbor chunks from the leaf nodes.
         all_neighbor_nodes = {}
         for keys, chunk_ids in leaf_nodes.items():
-            key_list = list(keys.split("_"))
+            key_set = set(keys.split("_"))
             for chunk_id in chunk_ids:
-                neighbor_nodes = self._detect_neighbor_nodes(key_list, chunk_id)
+                neighbor_nodes = self._detect_neighbor_nodes(key_set, chunk_id)
                 all_neighbor_nodes.setdefault(keys, []).extend(neighbor_nodes)
         for key, chunk_lists in all_neighbor_nodes.items():
             all_neighbor_nodes[key] = sorted(list(set(chunk_lists)))
@@ -292,18 +305,34 @@ class Retriever:
         neighbor_nodes = self.merge_keys(neighbor_nodes)
         return neighbor_nodes
 
+    def filter_chunk_by_entities(self, condidate_chunk_ids:List[str], entities:List[str]) -> List[str]:
+        # filter the chunks that not contain the related entities.
+        filtered_chunk_ids = []
+        for chunk_id in condidate_chunk_ids:
+            if chunk_id in self.index.keys():
+                if set(self.index[chunk_id]) & set(entities):
+                    filtered_chunk_ids.append(chunk_id)
+        return filtered_chunk_ids
 
     def query(self, query, **kwargs):
-        
+        # step 1: extract the Entities from the query.
         entities = naive_extract_graph(query.split("\n")[0], self.nlp)
-
         entities = entities["nouns"]
 
+        # step 2: use the wasd step to get the chunks.
         if kwargs.get("wasd", True):
+            # step 2.0: set up the parameters.
             shortest_path_k = kwargs.get("shortest_path_k", 4)
             min_count = kwargs.get("min_count", 2)
+            
+            # step 2.1: initialize the chunks by wasd method.
             wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
 
+            # step 2.2: check the result.
+                # if the chunk count is larger than the max chunk setting, then change the setting, increase the min count and decrease the shortest path k, until the chunk count is less than the max chunk setting.
+                # if the chunk count is 0, take it as dense retrieval.
+
+                
             res = {}
             chunk_count = 0
             chunk_counts_history = []
@@ -344,8 +373,46 @@ class Retriever:
                 return result
             else:
                 result = {"chunks":""}
+                query_embed = self.embedder(query)
+                # using dense retrieval to get more condidate chunks.
+                distance, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = 25 *2)
+                # get the chunk ids from the collapse tree ids.
+                condidate_chunk_ids = [self.collapse_tree_ids[i] for i in condidate_chunks_indexs]
+                # filter the chunks that not contain the related entities.
+                filtered_chunk_ids = self.filter_chunk_by_entities(condidate_chunk_ids, entities)
+                # filter the chunks like wasd step.
+                filtered_chunk_ids = self.validate_by_checking_father_chunks(filtered_chunk_ids, min_count)
+                # get the contiguous chunks.
+                top2bottom_res = {}
+                chunk_count = 0
+                for filtered_chunk_id in filtered_chunk_ids:
+                    for entity in entities:
+                        contiguous_chunks = self._detect_neighbor_nodes(set(entity), filtered_chunk_id)
+                        top2bottom_res.setdefault(entity, []).extend(contiguous_chunks)
+                for k, v in top2bottom_res.items():
+                    top2bottom_res[k] = sorted(list(set(v)))
+                    chunk_count += len(v)
+                # check the count of chunks:
+                if chunk_count > 25:
+                    while chunk_count > 25:
+                        # if the count of chunks is larger than the max chunk setting, then change the setting, increase the min count and decrease the shortest path k.
+                        min_count += 1
+                        
+                        filtered_chunk_ids = self.validate_by_checking_father_chunks(filtered_chunk_ids, min_count)
+                        top2bottom_res = {}
+                        chunk_count = 0
+                        for filtered_chunk_id in filtered_chunk_ids:
+                            for entity in entities:
+                                contiguous_chunks = self._detect_neighbor_nodes(set(entity), filtered_chunk_id)
+                                top2bottom_res.setdefault(entity, []).extend(contiguous_chunks)
+                        for k, v in top2bottom_res.items():
+                            top2bottom_res[k] = sorted(list(set(v)))
+                            chunk_count += len(v)
+
+                    print("final chunk_count", chunk_count)
+
+                result["chunks"] = "\n".join(contiguous_chunks)
                 result["chunk_counts_history"] = chunk_counts_history
-                # TODO: using the collapse tree and dense retrieval to get the chunks.
                 return result
 
         if kwargs.get("related_entities", False):
@@ -361,8 +428,6 @@ class Retriever:
         chunks = self.get_chunks(entities)
     
         # search for the other chunks.
-        # TODO: using faiss to search for the other chunks. maybe ablation study.
-
         if kwargs.get("dense_retrieval", False):
             # using dense retrieval to get the other chunks.
             assert self.embedder is not None, "The embedder is not set, please set the embedder when init the retriever."
@@ -384,33 +449,12 @@ class Retriever:
 
 
 if __name__ == "__main__":
-    cache_tree = {}
-    for i in range(100):
-        cache_tree[f"leaf_{i}"] = {
-            "text": f"This is the text of the chunk {i}",
-            "parent": f"summary_{i//10}",
-            "children": None
-        }
-    for i in range(10):
-        cache_tree[f"summary_{i}"] = {
-            "text": f"This is the summary of the chunk {i}",
-            "parent": None,
-            "children": [f"leaf_{j}" for j in range(i*10, (i+1)*10)]
-        }
-    graph = nx.Graph()
-    for i in range(10):
-        graph.add_node(f"summary")
-        graph.add_node(f"novel")
-        graph.add_edge(f"summary", f"novel")
-
-
-    index = {}
-    index["summary"] = [f"leaf_{i}" for i in range(10)]
-    index["novel"] = [f"leaf_{i}" for i in range(5,10)]
-
-
-    import spacy
+    import json
+    from extract_graph import load_cache
+    cache_tree = json.load(open("cache/NovelQA/0/tree.json", "r"))
+    G, index = load_cache("cache/NovelQA/0")
     nlp = spacy.load("en_core_web_sm")
-
-    retriever = Retriever(cache_tree, graph, index, nlp)
-    print(retriever.query("What is the summary of the novel?"))
+    retriever = Retriever(cache_tree, G, index, nlp)
+    query = "What is the main character of the novel?"
+    result = retriever.query(query)
+    print(result)
