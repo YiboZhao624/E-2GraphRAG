@@ -17,7 +17,7 @@ class Retriever:
         self.index = index
         self.inverse_index = self.get_inverse_index()
         self.nlp = nlp
-        self.device = kwargs.get("device", "cuda")
+        self.device = kwargs.get("device", "cuda:6")
         self.merge_num = kwargs.get("merge_num", 5)
         self.min_count = kwargs.get("min_count", 2)
         self.overlap = kwargs.get("overlap", 100)
@@ -67,7 +67,7 @@ class Retriever:
             self.embedder.to(self.device)
             print("the embedder is not set, using the default embedder BAAI/bge-m3.")
         doc_embeds = self.embedder.encode(docs, batch_size=32, device=self.device)
-        print("doc_embeds shape", doc_embeds.shape)
+        # print("doc_embeds shape", doc_embeds.shape)
         vector_database = faiss.IndexFlatIP(doc_embeds.shape[1])
         vector_database.add(doc_embeds)
         return vector_database
@@ -183,7 +183,7 @@ class Retriever:
         while front or back:
             if front:
                 front_int_chunk_id = front_int_chunk_id - 1
-                if front_int_chunk_id < 0 or self.inverse_index.get(front_int_chunk_id, []) & keys != keys:
+                if front_int_chunk_id < 0 or set(self.inverse_index.get(front_int_chunk_id, [])) & keys != keys:
                     front = False
                 str_chunk_id = "leaf_{}".format(front_int_chunk_id)
                 append = True
@@ -196,7 +196,7 @@ class Retriever:
                     neighbor_nodes.append(str_chunk_id)
             if back:
                 back_int_chunk_id += 1
-                if self.inverse_index.get(back_int_chunk_id, []) & keys != keys:
+                if set(self.inverse_index.get(back_int_chunk_id, [])) & keys != keys:
                     back = False
                 str_chunk_id = "leaf_{}".format(back_int_chunk_id)
                 append = True
@@ -363,7 +363,7 @@ class Retriever:
                         res[key] = chunk_ids
                         chunk_count += len(chunk_ids)
                     chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
-                print("final chunk_count", chunk_count)
+                print("BOTTOM2TOP: final chunk_count", chunk_count)
                 res_str = self.format_res(res)
 
                 result = {"chunks":res_str}
@@ -416,9 +416,9 @@ class Retriever:
                             top2bottom_res[k] = sorted(list(set(v)))
                             chunk_count += len(v)
 
-                    print("final chunk_count", chunk_count)
-
-                result["chunks"] = "\n".join(contiguous_chunks)
+                print("TOP2BOTTOM: final chunk_count", chunk_count)
+                res_str = self.format_res(top2bottom_res)
+                result["chunks"] = res_str
                 result["chunk_counts_history"] = chunk_counts_history
                 return result
 
