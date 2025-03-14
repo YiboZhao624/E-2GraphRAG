@@ -8,6 +8,8 @@ import spacy
 from collections import defaultdict
 from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer
+import torch
+
 class Retriever:
     def __init__(self, cache_tree, G:nx.Graph, index, nlp:spacy.Language, **kwargs) -> None:
         # index is the noun to chunks index.
@@ -23,17 +25,35 @@ class Retriever:
         self.overlap = kwargs.get("overlap", 100)
         #TODO a desk path.
         self.tokenizer = kwargs.get("tokenizer","/root/shared_planing/LLM_model/Qwen2.5-7B-Instruct")
-        # print(self.tokenizer)
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer)
         if kwargs.get("embedder", "BAAI/bge-m3") is not None:
-            self.embedder = SentenceTransformer(kwargs.get("embedder", "BAAI/bge-m3"))
-            self.embedder.eval()
-            self.embedder.to(self.device)
+            self.embedder = SentenceTransformer(kwargs.get("embedder", "BAAI/bge-m3"),device=self.device)
             self.faiss_index = self._build_faiss_index()
         else:
             print("Warning: the embedder is set to None, dense retrieval is not implemented.")
             self.embedder = None
             self.faiss_index = None
+
+    def __del__(self):
+        """Ensure proper cleanup of resources"""
+        try:
+            if hasattr(self, 'embedder'):
+                del self.embedder
+            if hasattr(self, 'faiss_index'):
+                del self.faiss_index
+            torch.cuda.empty_cache()
+        except Exception as e:
+            print(f"Error during Retriever cleanup: {e}")
+
+    def update(self, cache_tree, G, index):
+        self.cache_tree = cache_tree
+        self.collapse_tree, self.collapse_tree_ids = self._collapse_tree(self.cache_tree)
+        self.G = G
+        self.index = index
+        self.inverse_index = self.get_inverse_index()
+        self.docs = self.collapse_tree
+        if self.embedder is not None:
+            self.faiss_index = self._build_faiss_index()
 
     def get_inverse_index(self):
         # get the inverse index.
@@ -58,15 +78,20 @@ class Retriever:
         # only used when the dense retrieval is implemented.
         # return the faiss index.
         docs = self.collapse_tree
+        # print("len of docs", len(docs))
+        tokenizer = self.embedder.tokenizer
+        # print("max length of docs", max(len(tokenizer.encode(doc)) for doc in docs))
+        # print("min length of docs", min(len(tokenizer.encode(doc)) for doc in docs))
+        # print("self embedder device", self.embedder.device)
         # use the embedder to embed the docs.
         # use the faiss to build the index.
         # return the faiss index.
         if self.embedder is None:
-            self.embedder = SentenceTransformer("BAAI/bge-m3")
+            self.embedder = SentenceTransformer("BAAI/bge-m3",device=self.device)
             self.embedder.eval()
-            self.embedder.to(self.device)
             print("the embedder is not set, using the default embedder BAAI/bge-m3.")
-        doc_embeds = self.embedder.encode(docs, batch_size=32, device=self.device)
+        doc_embeds = self.embedder.encode(docs, batch_size=16, device=self.device)
+        # print("doc_embeds examples", doc_embeds[0:5][0:5])
         # print("doc_embeds shape", doc_embeds.shape)
         vector_database = faiss.IndexFlatIP(doc_embeds.shape[1])
         vector_database.add(doc_embeds)
@@ -382,6 +407,8 @@ class Retriever:
                 # the normal faiss index return the (1, k) shape. squeeze it to (k,).
                 condidate_chunks_indexs = condidate_chunks_indexs[0]
                 # get the chunk ids from the collapse tree ids.
+                print("condidate_chunks_indexs", condidate_chunks_indexs)
+                print("self.collapse_tree_ids count: ", len(self.collapse_tree_ids))
                 condidate_chunk_ids = [self.collapse_tree_ids[i] for i in condidate_chunks_indexs]
 
                 # filter the chunks that not contain the related entities.
@@ -458,8 +485,8 @@ class Retriever:
 if __name__ == "__main__":
     import json
     from extract_graph import load_cache
-    cache_tree = json.load(open("cache/wo_faiss/NarrativeQA/02eb19e46391a42912c60b7d0a072fc8684dfbd6/tree.json", "r"))
-    G, index = load_cache("cache/wo_faiss/NarrativeQA/02eb19e46391a42912c60b7d0a072fc8684dfbd6")
+    cache_tree = json.load(open("cache/wo_faiss/NovelQA/81/tree.json", "r"))
+    G, index = load_cache("cache/wo_faiss/NovelQA/81")
     nlp = spacy.load("en_core_web_sm")
     retriever = Retriever(cache_tree, G, index, nlp)
     query = "What is the main character of the novel?"
