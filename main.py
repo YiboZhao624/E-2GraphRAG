@@ -16,6 +16,7 @@ import sys
 import argparse
 import time
 from process_utils import build_tree_task, extract_graph_task, clean_cuda_memory
+import gc
 
 def parse_args():
     # parser = argparse.ArgumentParser()
@@ -99,6 +100,8 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
     
     finally:
         clean_cuda_memory(device_id)
+        # 强制垃圾回收
+        gc.collect()
 
     print("-" * 15)
     print(f"total time: {timer['total']} seconds")
@@ -182,7 +185,10 @@ def main():
                 try:
                     # Process QA
                     G, index = graph
-                    retriever = Retriever(tree, G, index, load_nlp(), **configs["retriever"]["kwargs"])
+                    if "retriever" not in locals():
+                        retriever = Retriever(tree, G, index, load_nlp(), **configs["retriever"]["kwargs"])
+                    else:
+                        retriever.update(tree, G, index)
                     res = []
                     os.makedirs(configs["paths"]["answer_path"], exist_ok=True)
                     
@@ -246,7 +252,7 @@ def main():
                         elif configs["dataset"]["dataset_name"] == "NarrativeQA":
                             input_text = Prompts["QA_prompt_answer"].format(question = question,
                                                         evidence = model_supplement)
-                            output = llm(input_text)
+                            output = llm(input_text, max_new_tokens = 20)
                             output_text = output[0]["generated_text"]
                             output_text = output_text[len(input_text):]
                             print("output_text: ", output_text)
@@ -273,11 +279,11 @@ def main():
                     print(traceback.format_exc())
                     print(f"TODO:Error occurred during book {i} processing. Set resumeIndex to {i}.")
                     raise e
-                finally:
-                    # Clean up QA resources
-                    del llm
-                    if torch.cuda.is_available():
+                finally:                    
+                    if 'llm' in locals():
+                        del llm
                         torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
                 
         except Exception as e:
             print(f"Error occurred during dataset processing: {e}")
