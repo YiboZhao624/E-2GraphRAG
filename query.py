@@ -364,6 +364,15 @@ class Retriever:
             count += len(chunk_ids)
         return count
 
+    def entity_filter(self, candidate_chunks:Dict[str, List[str]], entities:List[str]) -> Dict[str, List[str]]:
+        # filter rules:
+        # 1. the chunk includes more different entities, the priority is higher.
+        # 2. if the chunk has longer neighbor nodes, the priority is higher.
+        # 3. if the chunk includes the same number of entities, the higher the number of appearance of the entities is, the higher the priority is.
+        pass
+
+
+
     def query(self, query, **kwargs):
         # step 1: extract the Entities from the query.
         entities = naive_extract_graph(query.split("\n")[0], self.nlp)
