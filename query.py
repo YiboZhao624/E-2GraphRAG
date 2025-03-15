@@ -9,7 +9,7 @@ from collections import defaultdict
 from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer
 import torch
-
+import copy
 class Retriever:
     def __init__(self, cache_tree, G:nx.Graph, index, nlp:spacy.Language, **kwargs) -> None:
         # index is the noun to chunks index.
@@ -120,12 +120,11 @@ class Retriever:
                 entity_key = "_".join(entity)
                 for e in entity:
                     if e in self.index.keys():
-                        
                         if chunk_ids_set == set():
                             chunk_ids_set = set(self.index[e])
                         else:
                             chunk_ids_set = chunk_ids_set & set(self.index[e])
-                chunk_ids[entity_key] = list(chunk_ids_set)
+                chunk_ids[entity_key] = sorted(list(chunk_ids_set))
 
         return chunk_ids
     
@@ -319,14 +318,22 @@ class Retriever:
 
     def wasd_step(self, entities:List[str], shortest_path_k:int=4, min_count:int=2)->Dict[str, List[str]]:
         # initialize by shortest path
-        shortest_path = self.get_shortest_path(entities, shortest_path_k)
+        shortest_path = self.get_shortest_path(entities, shortest_path_k) 
+        # it returns the list of pairs existing shortest path shorter than k.
+        
         # initialize the chunks.
         init_chunk_ids = self.get_chunks(shortest_path)
+        # it returns a dict, key is entityA_entityB, value is the sorted list of chunk ids.
+        
         # w+s step, get the valid chunks by checking the father of the leaves.
         valid_child_ids = self.validate_by_checking_father_chunks(init_chunk_ids, min_count)
+        # it won't change the data structure, just filter the chunks.
+
         # a+d step, search the neighbor of the leaf nodes.
         neighbor_nodes = self.get_neighbor_chunks(valid_child_ids)
-        # merge the nodes with different keys.
+        # won't change the data structure, just add the chunks.
+        
+        # merge the nodes with different keys, the structure is still the same.
         neighbor_nodes = self.merge_keys(neighbor_nodes)
         return neighbor_nodes
 
@@ -342,144 +349,139 @@ class Retriever:
             res[entity] = filtered_chunk_ids
         return res
 
+    def dense_retrieval(self, query,k):
+        # using dense retrieval to get the chunks.
+        query_embed = self.embedder.encode(query).reshape(1, -1) # need (1, -1) for faiss.
+        distance, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = k)
+        # the normal faiss index return the (1, k) shape. squeeze it to (k,).
+        condidate_chunks_indexs = condidate_chunks_indexs[0]
+        return condidate_chunks_indexs
+
+    def _count_chunks(self, res:Dict[str, List[str]]) -> int:
+        # count the chunks.
+        count = 0
+        for chunk_ids in res.values():
+            count += len(chunk_ids)
+        return count
+
     def query(self, query, **kwargs):
         # step 1: extract the Entities from the query.
         entities = naive_extract_graph(query.split("\n")[0], self.nlp)
         entities = entities["nouns"]
 
-        # step 2: use the wasd step to get the chunks.
-        if kwargs.get("wasd", True):
-            # step 2.0: set up the parameters.
-            shortest_path_k = kwargs.get("shortest_path_k", 4)
-            min_count = kwargs.get("min_count", 2)
-            
-            # step 2.1: initialize the chunks by wasd method.
-            wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
+        # step 2.0: set up the parameters.
+        shortest_path_k = kwargs.get("shortest_path_k", 4)
+        min_count = kwargs.get("min_count", 2)
 
-            # step 2.2: check the result.
-                # if the chunk count is larger than the max chunk setting, then change the setting, increase the min count and decrease the shortest path k, until the chunk count is less than the max chunk setting.
-                # if the chunk count is 0, take it as dense retrieval.
+        # step 2.1: short circuit, if there is no entity, then return the naive dense retrieval.
+        if len(entities) == 0:
+            return self.dense_retrieval(query, kwargs.get("max_chunk_setting", 25))
 
-                
-            res = {}
-            chunk_count = 0
-            chunk_counts_history = []
-            for key, chunk_ids in wasd_res.items():
-                res[key] = chunk_ids
-                chunk_count += len(chunk_ids)
-            chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
-            
-            if chunk_count != 0:
-                flag = 0
-                while chunk_count > kwargs.get("max_chunk_setting", 25):
-                    # if the chunk count is larger than the max chunk setting
-                    # then change the setting, increase the min count and decrease the shortest path k.
-                    if flag == 0:
-                        shortest_path_k -= 1
-                        flag = 1
-                    else:
-                        min_count += 1
-                        flag = 0
-                    
-                    wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
-                    chunk_count = 0
-                    res = {}
-                    for key, chunk_ids in wasd_res.items():
-                        res[key] = chunk_ids
-                        chunk_count += len(chunk_ids)
-                    chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
-                print("BOTTOM2TOP: final chunk_count", chunk_count)
-                res_str = self.format_res(res)
+        # step 2.2: initialize the chunks by wasd method.
+        wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
 
-                result = {"chunks":res_str}
-                if kwargs.get("debug", True):
-                    result["entities"] = entities
-                    result["neighbor_nodes"] = res
-                    result["keys"] = list(res.keys())
-                    result["len_chunks"] = chunk_count
-                    result["chunk_counts_history"] = chunk_counts_history
-                return result
-            else:
-                result = {"chunks":""}
-                query_embed = self.embedder.encode(query).reshape(1, -1) # need (1, -1) for faiss.
-                # using dense retrieval to get more condidate chunks.
-                distance, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = 25 *2)
-                # the normal faiss index return the (1, k) shape. squeeze it to (k,).
-                condidate_chunks_indexs = condidate_chunks_indexs[0]
-                # get the chunk ids from the collapse tree ids.
-                print("condidate_chunks_indexs", condidate_chunks_indexs)
-                print("self.collapse_tree_ids count: ", len(self.collapse_tree_ids))
-                condidate_chunk_ids = [self.collapse_tree_ids[i] for i in condidate_chunks_indexs]
-
-                # filter the chunks that not contain the related entities.
-                filtered_chunk_ids = self.filter_chunk_by_entities(condidate_chunk_ids, entities)
-
-                # filter the chunks like wasd step.
-                filtered_chunk_ids = self.validate_by_checking_father_chunks(filtered_chunk_ids, min_count)
-                # get the contiguous chunks.
-                top2bottom_res = {}
-                chunk_count = 0
-                for entity, filtered_chunk_ids in filtered_chunk_ids.items():
-                    for filtered_chunk_id in filtered_chunk_ids:
-                        contiguous_chunks = self._detect_neighbor_nodes(set(entity), filtered_chunk_id)
-                        top2bottom_res.setdefault(entity, []).extend(contiguous_chunks)
-                for k, v in top2bottom_res.items():
-                    top2bottom_res[k] = sorted(list(set(v)))
-                    chunk_count += len(v)
-                # check the count of chunks:
-                if chunk_count > 25:
-                    while chunk_count > 25:
-                        # if the count of chunks is larger than the max chunk setting, then change the setting, increase the min count and decrease the shortest path k.
-                        min_count += 1
-                        
-                        filtered_chunk_ids = self.validate_by_checking_father_chunks(filtered_chunk_ids, min_count)
-                        top2bottom_res = {}
-                        chunk_count = 0
-                        for entity, filtered_chunk_ids in filtered_chunk_ids.items():
-                            for filtered_chunk_id in filtered_chunk_ids:
-                                contiguous_chunks = self._detect_neighbor_nodes(set(entity), filtered_chunk_id)
-                                top2bottom_res.setdefault(entity, []).extend(contiguous_chunks)
-                        for k, v in top2bottom_res.items():
-                            top2bottom_res[k] = sorted(list(set(v)))
-                            chunk_count += len(v)
-
-                print("TOP2BOTTOM: final chunk_count", chunk_count)
-                res_str = self.format_res(top2bottom_res)
-                result["chunks"] = res_str
-                result["chunk_counts_history"] = chunk_counts_history
-                return result
-
-        if kwargs.get("related_entities", False):
-            # get related entities.
-            entities = self.get_related_entities(entities)
-
-        if kwargs.get("shortest_path", True):
-            # get the shortest path between the entities.
-            shortest_path = self.get_shortest_path(entities, kwargs.get("shortest_path_k", kwargs.get("shortest_path_k", 4)))
-            entities = shortest_path
-
-        # use the entities to get the chunks
-        chunks = self.get_chunks(entities)
+        # step 2.2: check the result.
+            # if the chunk count is larger than the max chunk setting, then change the setting, increase the min count and decrease the shortest path k, until the chunk count is less than the max chunk setting.
+            # if the chunk count is 0, take it as dense retrieval.
     
-        # search for the other chunks.
-        if kwargs.get("dense_retrieval", False):
-            # using dense retrieval to get the other chunks.
-            assert self.embedder is not None, "The embedder is not set, please set the embedder when init the retriever."
-            assert self.faiss_index is not None, "The faiss index is not set."
-            query_embed = self.embedder(query)
-            dense_chunks = self.faiss_index.search(query_embed, k=kwargs.get("k", 5))
-            dense_chunks = [self.docs[i] for i in dense_chunks]
-            chunks.extend(dense_chunks)
-        
+        chunk_count = self._count_chunks(wasd_res)
+        # record the chunk count history, for debug.
+        chunk_counts_history = []
+        chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
 
-        res_str = "\n".join(chunks)
-        result = {"chunks":res_str}
+        # if the chunk count is 0, dense retrieval + entity filter.
+        # TODO: code not finished.
+        if chunk_count == 0:
+            # using dense retrieval to get more condidate chunks.
+            distance, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = 25 *2)
+            # the normal faiss index return the (1, k) shape. squeeze it to (k,).
+            condidate_chunks_indexs = condidate_chunks_indexs[0]
+            
 
-        if kwargs.get("debug", False):
-            result["entities"] = entities
-            result["len_chunks"] = len(chunks)
-        return result
-        
+        flag = 0
+        while chunk_count > kwargs.get("max_chunk_setting", 25):
+            prev_wasd_res = copy.deepcopy(wasd_res)
+            # if the chunk count is larger than the max chunk setting
+            # then change the setting, increase the min count and decrease the shortest path k.
+            if flag == 0:
+                shortest_path_k -= 1
+                flag = 1
+            else:
+                min_count += 1
+                flag = 0
+            # update the result with new restrictions.
+            wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
+            chunk_count = self._count_chunks(wasd_res)
+            chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
+
+        # if the chunk count is 0, dense retrieval + entity filter.
+        # if the chunk count is not 0, return the result.
+        if chunk_count != 0:
+            # format the result.
+            print("BOTTOM2TOP: final chunk_count", chunk_count)
+            res_str = self.format_res(wasd_res)
+
+            result = {"chunks":res_str}
+            if kwargs.get("debug", True):
+                result["entities"] = entities
+                result["neighbor_nodes"] = wasd_res
+                result["keys"] = list(wasd_res.keys())
+                result["len_chunks"] = chunk_count
+                result["chunk_counts_history"] = chunk_counts_history
+            return result
+        else:
+            # the previous wasd result is not empty, so we can use it as candidate chunks.
+            candidate_chunks = prev_wasd_res
+
+            #TODO: using the entity as filter to get the chunks.
+            result = {"chunks":""}
+            query_embed = self.embedder.encode(query).reshape(1, -1) # need (1, -1) for faiss.
+            # using dense retrieval to get more condidate chunks.
+            distance, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = 25 *2)
+            # the normal faiss index return the (1, k) shape. squeeze it to (k,).
+            condidate_chunks_indexs = condidate_chunks_indexs[0]
+            # get the chunk ids from the collapse tree ids.
+            print("condidate_chunks_indexs", condidate_chunks_indexs)
+            print("self.collapse_tree_ids count: ", len(self.collapse_tree_ids))
+            condidate_chunk_ids = [self.collapse_tree_ids[i] for i in condidate_chunks_indexs]
+
+            # filter the chunks that not contain the related entities.
+            filtered_chunk_ids = self.filter_chunk_by_entities(condidate_chunk_ids, entities)
+
+            # filter the chunks like wasd step.
+            filtered_chunk_ids = self.validate_by_checking_father_chunks(filtered_chunk_ids, min_count)
+            # get the contiguous chunks.
+            top2bottom_res = {}
+            chunk_count = 0
+            for entity, filtered_chunk_ids in filtered_chunk_ids.items():
+                for filtered_chunk_id in filtered_chunk_ids:
+                    contiguous_chunks = self._detect_neighbor_nodes(set(entity), filtered_chunk_id)
+                    top2bottom_res.setdefault(entity, []).extend(contiguous_chunks)
+            for k, v in top2bottom_res.items():
+                top2bottom_res[k] = sorted(list(set(v)))
+                chunk_count += len(v)
+            # check the count of chunks:
+            if chunk_count > 25:
+                while chunk_count > 25:
+                    # if the count of chunks is larger than the max chunk setting, then change the setting, increase the min count and decrease the shortest path k.
+                    min_count += 1
+                    
+                    filtered_chunk_ids = self.validate_by_checking_father_chunks(filtered_chunk_ids, min_count)
+                    top2bottom_res = {}
+                    chunk_count = 0
+                    for entity, filtered_chunk_ids in filtered_chunk_ids.items():
+                        for filtered_chunk_id in filtered_chunk_ids:
+                            contiguous_chunks = self._detect_neighbor_nodes(set(entity), filtered_chunk_id)
+                            top2bottom_res.setdefault(entity, []).extend(contiguous_chunks)
+                    for k, v in top2bottom_res.items():
+                        top2bottom_res[k] = sorted(list(set(v)))
+                        chunk_count += len(v)
+
+            print("TOP2BOTTOM: final chunk_count", chunk_count)
+            res_str = self.format_res(top2bottom_res)
+            result["chunks"] = res_str
+            result["chunk_counts_history"] = chunk_counts_history
+            return result        
 
 
 if __name__ == "__main__":
