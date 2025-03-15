@@ -17,7 +17,7 @@ import argparse
 import time
 from process_utils import build_tree_task, extract_graph_task, clean_cuda_memory
 import gc
-
+from datetime import datetime
 def parse_args():
     # parser = argparse.ArgumentParser()
     # parser.add_argument("--dataset", type=str, required=True)
@@ -120,6 +120,7 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
 
 def main():
     try:
+        date = datetime.now().strftime("%Y%m%d")
         # parse the arguments.
         configs = parse_args()
         device_id = int(configs["llm"]["llm_device"].split(':')[1]) if ':' in configs["llm"]["llm_device"] else 0
@@ -200,7 +201,7 @@ def main():
                             query_start_time = time.time()
                             model_supplement = retriever.query(question, **configs["retriever"]["kwargs"])
                             query_end_time = time.time()
-                            with open(os.path.join(configs["paths"]["answer_path"], "query_time.txt"), "a") as f:
+                            with open(os.path.join(configs["paths"]["answer_path"], f"{date}_query_time.txt"), "a") as f:
                                 f.write(f"question {i}: query time: {query_end_time - query_start_time}\n")
 
                             evidences = model_supplement["chunks"]
