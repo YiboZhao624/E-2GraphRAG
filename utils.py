@@ -1,6 +1,30 @@
 from typing import List
 from transformers import AutoTokenizer
 from rouge import Rouge
+from dataloader import NovelQALoader, NarrativeQALoader, test_loader
+import json,os
+from extract_graph import build_graph
+
+def load_dataset(dataset_name:str, dataset_path:str):
+    if dataset_name == "NovelQA":
+        return NovelQALoader(dataset_path)
+    elif dataset_name == "NarrativeQA":
+        return NarrativeQALoader()
+    elif dataset_name == "test":
+        return test_loader(dataset_path)
+    else:
+        raise ValueError("Invalid dataset")
+
+def load_tree_graph(cache_folder:str):
+    tree = json.load(open(os.path.join(cache_folder, "tree.json")))
+    graph_file_path = os.path.join(cache_folder, "graph.json")
+    index_file_path = os.path.join(cache_folder, "index.json")
+    appearance_count_file_path = os.path.join(cache_folder, "appearance_count.json")
+    edges = json.load(open(graph_file_path, "r"))
+    index = json.load(open(index_file_path, "r"))
+    appearance_count = json.load(open(appearance_count_file_path, "r"))
+    G = build_graph(edges)
+    return tree, G, index, appearance_count
 
 def sequential_split(text:str, tokenizer:AutoTokenizer,
                      length:int, overlap:int)->List[str]:
