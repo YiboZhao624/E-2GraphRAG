@@ -185,11 +185,11 @@ def main():
                 
                 try:
                     # Process QA
-                    G, index = graph
+                    G, index, appearance_count = graph
                     if "retriever" not in locals():
-                        retriever = Retriever(tree, G, index, load_nlp(), **configs["retriever"]["kwargs"])
+                        retriever = Retriever(tree, G, index, appearance_count, load_nlp(), **configs["retriever"]["kwargs"])
                     else:
-                        retriever.update(tree, G, index)
+                        retriever.update(tree, G, index, appearance_count)
                     res = []
                     os.makedirs(configs["paths"]["answer_path"], exist_ok=True)
                     
