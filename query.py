@@ -10,13 +10,17 @@ from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer
 import torch
 import copy
+import numpy as np
+
 class Retriever:
-    def __init__(self, cache_tree, G:nx.Graph, index, nlp:spacy.Language, **kwargs) -> None:
+    def __init__(self, cache_tree, G:nx.Graph, index, appearance_count:Dict[str, int], nlp:spacy.Language, **kwargs) -> None:
         # index is the noun to chunks index.
+        # appearance_count is the appearance count of the entities in the chunks.
         self.cache_tree = cache_tree
         self.collapse_tree, self.collapse_tree_ids = self._collapse_tree(self.cache_tree)
         self.G = G
         self.index = index
+        self.appearance_count = appearance_count
         self.inverse_index = self.get_inverse_index()
         self.nlp = nlp
         self.device = kwargs.get("device", "cuda:6")
@@ -45,11 +49,12 @@ class Retriever:
         except Exception as e:
             print(f"Error during Retriever cleanup: {e}")
 
-    def update(self, cache_tree, G, index):
+    def update(self, cache_tree, G, index, appearance_count):
         self.cache_tree = cache_tree
         self.collapse_tree, self.collapse_tree_ids = self._collapse_tree(self.cache_tree)
         self.G = G
         self.index = index
+        self.appearance_count = appearance_count
         self.inverse_index = self.get_inverse_index()
         self.docs = self.collapse_tree
         if self.embedder is not None:
@@ -337,17 +342,17 @@ class Retriever:
         neighbor_nodes = self.merge_keys(neighbor_nodes)
         return neighbor_nodes
 
-    def filter_chunk_by_entities(self, condidate_chunk_ids:List[str], entities:List[str]) -> List[str]:
-        # filter the chunks that not contain the related entities.
-        filtered_chunk_ids = []
-        for chunk_id in condidate_chunk_ids:
-            if chunk_id in self.index.keys():
-                if set(self.index[chunk_id]) & set(entities):
-                    filtered_chunk_ids.append(chunk_id)
-        res = {}
-        for entity in entities:
-            res[entity] = filtered_chunk_ids
-        return res
+    # def filter_chunk_by_entities(self, condidate_chunk_ids:List[str], entities:List[str]) -> List[str]:
+    #     # filter the chunks that not contain the related entities.
+    #     filtered_chunk_ids = []
+    #     for chunk_id in condidate_chunk_ids:
+    #         if chunk_id in self.index.keys():
+    #             if set(self.index[chunk_id]) & set(entities):
+    #                 filtered_chunk_ids.append(chunk_id)
+    #     res = {}
+    #     for entity in entities:
+    #         res[entity] = filtered_chunk_ids
+    #     return res
 
     def dense_retrieval(self, query,k):
         # using dense retrieval to get the chunks.
@@ -369,9 +374,61 @@ class Retriever:
         # 1. the chunk includes more different entities, the priority is higher.
         # 2. if the chunk has longer neighbor nodes, the priority is higher.
         # 3. if the chunk includes the same number of entities, the higher the number of appearance of the entities is, the higher the priority is.
-        pass
+        # Initialize result dictionary
+        chunks_info = []
+        for key, value in candidate_chunks.items():
+            for chunk_id in value:
+                key_count = len(key.split("_"))
+                neighbor_nodes_count = len(self._detect_neighbor_nodes(keys=key, chunk_id=chunk_id))
+                entity_count = 0
+                for key_entity in key.split('_'):
+                    entity_count += self.appearance_count[chunk_id].get(key_entity, 0)
+                chunk_id_info = {
+                    "chunk_id": chunk_id,
+                    "key_count": key_count,
+                    "neighbor_nodes_count": neighbor_nodes_count,
+                    "entity_count": entity_count
+                }
+                chunks_info.append(chunk_id_info)
+        # sort the chunks_info by the key_count, neighbor_nodes_count, and entity_count.
+        sorted_chunks_info = sorted(chunks_info, key=lambda x: (x["key_count"], x["neighbor_nodes_count"], x["entity_count"]), reverse=True)
+        # get the top 25 chunks.
+        top_25_chunks = sorted_chunks_info[:25]
+        # get the chunk_ids from the top_25_chunks.
+        top_25_chunk_ids = [chunk["chunk_id"] for chunk in top_25_chunks]
+        # return the result.
+        for id in top_25_chunk_ids:
+            for entity in entities:
+                if entity in self.index[id]:
+                    filtered_res.setdefault(entity, []).append(id)
+        filtered_res = self.merge_keys(filtered_res)
+        return filtered_res
 
+    def _faiss_entity_filter(self, candidate_chunk_ids:List[str], entities:List[str]) -> Dict[str, List[str]]:
+        # filter the chunks that not contain the related entities.
+        filtered_res = {}
+        filtered_chunk_ids = []
+        chunk_count = []
+        for chunk_id in candidate_chunk_ids:
+            chunk_appearance_stat = self.appearance_count[chunk_id]
+            this_chunk_count = 0
+            for entity in entities:
+                this_chunk_count += chunk_appearance_stat.get(entity, 0)
+            chunk_count.append(this_chunk_count)
 
+        # using the [:np.nonzero(chunk_count)[0][-1]+1] to get the non-zero elements. which means the chunk has at least one entity.
+        argsorted_chunk_ids = np.argsort(chunk_count)[::-1][:np.nonzero(chunk_count)[0][-1]+1]
+        filtered_chunk_ids = [candidate_chunk_ids[i] for i in argsorted_chunk_ids]
+        if len(filtered_chunk_ids) > 25:
+            filtered_chunk_ids = filtered_chunk_ids[:25]
+        
+        # format the result into entity_entityB: [chunk_id1, chunk_id2, ...]
+        for id in filtered_chunk_ids:
+            for entity in entities:
+                if entity in self.index[id]:
+                    filtered_res.setdefault(entity, []).append(id)
+        filtered_res = self.merge_keys(filtered_res)
+        return filtered_res
 
     def query(self, query, **kwargs):
         # step 1: extract the Entities from the query.
@@ -399,14 +456,25 @@ class Retriever:
         chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
 
         # if the chunk count is 0, dense retrieval + entity filter.
-        # TODO: code not finished.
         if chunk_count == 0:
-            # using dense retrieval to get more condidate chunks.
-            distance, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = 25 *2)
+            query_embed = self.embedder.encode(query).reshape(1, -1) # need (1, -1) for faiss.
+            _, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = 25 *2)
             # the normal faiss index return the (1, k) shape. squeeze it to (k,).
             condidate_chunks_indexs = condidate_chunks_indexs[0]
-            
+            condidate_chunk_ids = [self.collapse_tree_ids[i] for i in condidate_chunks_indexs]
+            filtered_chunk_ids = self._faiss_entity_filter(condidate_chunk_ids, entities) 
+            # return the entity_entityB: [chunk_id1, chunk_id2, ...]
+            res_str = self.format_res(filtered_chunk_ids)
 
+            result = {"chunks":res_str}
+            if kwargs.get("debug", True):
+                chunk_count = self._count_chunks(filtered_chunk_ids)
+                result["entities"] = entities
+                result["neighbor_nodes"] = filtered_chunk_ids
+                result["keys"] = list(filtered_chunk_ids.keys())
+                result["len_chunks"] = chunk_count
+                result["chunk_counts_history"] = chunk_counts_history
+            return result
         flag = 0
         while chunk_count > kwargs.get("max_chunk_setting", 25):
             prev_wasd_res = copy.deepcopy(wasd_res)
@@ -441,53 +509,7 @@ class Retriever:
         else:
             # the previous wasd result is not empty, so we can use it as candidate chunks.
             candidate_chunks = prev_wasd_res
-
-            #TODO: using the entity as filter to get the chunks.
-            result = {"chunks":""}
-            query_embed = self.embedder.encode(query).reshape(1, -1) # need (1, -1) for faiss.
-            # using dense retrieval to get more condidate chunks.
-            distance, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = 25 *2)
-            # the normal faiss index return the (1, k) shape. squeeze it to (k,).
-            condidate_chunks_indexs = condidate_chunks_indexs[0]
-            # get the chunk ids from the collapse tree ids.
-            print("condidate_chunks_indexs", condidate_chunks_indexs)
-            print("self.collapse_tree_ids count: ", len(self.collapse_tree_ids))
-            condidate_chunk_ids = [self.collapse_tree_ids[i] for i in condidate_chunks_indexs]
-
-            # filter the chunks that not contain the related entities.
-            filtered_chunk_ids = self.filter_chunk_by_entities(condidate_chunk_ids, entities)
-
-            # filter the chunks like wasd step.
-            filtered_chunk_ids = self.validate_by_checking_father_chunks(filtered_chunk_ids, min_count)
-            # get the contiguous chunks.
-            top2bottom_res = {}
-            chunk_count = 0
-            for entity, filtered_chunk_ids in filtered_chunk_ids.items():
-                for filtered_chunk_id in filtered_chunk_ids:
-                    contiguous_chunks = self._detect_neighbor_nodes(set(entity), filtered_chunk_id)
-                    top2bottom_res.setdefault(entity, []).extend(contiguous_chunks)
-            for k, v in top2bottom_res.items():
-                top2bottom_res[k] = sorted(list(set(v)))
-                chunk_count += len(v)
-            # check the count of chunks:
-            if chunk_count > 25:
-                while chunk_count > 25:
-                    # if the count of chunks is larger than the max chunk setting, then change the setting, increase the min count and decrease the shortest path k.
-                    min_count += 1
-                    
-                    filtered_chunk_ids = self.validate_by_checking_father_chunks(filtered_chunk_ids, min_count)
-                    top2bottom_res = {}
-                    chunk_count = 0
-                    for entity, filtered_chunk_ids in filtered_chunk_ids.items():
-                        for filtered_chunk_id in filtered_chunk_ids:
-                            contiguous_chunks = self._detect_neighbor_nodes(set(entity), filtered_chunk_id)
-                            top2bottom_res.setdefault(entity, []).extend(contiguous_chunks)
-                    for k, v in top2bottom_res.items():
-                        top2bottom_res[k] = sorted(list(set(v)))
-                        chunk_count += len(v)
-
-            print("TOP2BOTTOM: final chunk_count", chunk_count)
-            res_str = self.format_res(top2bottom_res)
+            res_ids = self.entity_filter(candidate_chunks, entities)
             result["chunks"] = res_str
             result["chunk_counts_history"] = chunk_counts_history
             return result        
