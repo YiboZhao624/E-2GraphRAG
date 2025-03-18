@@ -107,7 +107,97 @@ class NarrativeQALoader:
 
     def __len__(self):
         return len(self.available_ids)
+
+class InfiniteQALoader:
+    def __init__(self, path = "./InfiniteBench/data/longbook_qa_eng.jsonl"):
+        self.dataset, self.available_ids = self._initialize_dataset(path)
+
+    def _initialize_dataset(self, path):
+        dataset = {}
+        context_id = -1
+        prev_context = ""
+        
+        with open(path, "r", encoding='utf-8') as infile:  # Add encoding='utf-8'
+            for line in infile:
+                try:
+                    data = json.loads(line.strip())  # Add strip() to remove whitespace/newlines
+                    context = data["context"]
+                    question = data["input"]
+                    answer = data["answer"]
+                    
+                    if context != prev_context:
+                        context_id += 1
+                        prev_context = context
+                        dataset[context_id] = {
+                            "book": context,  # Add book field to match other loaders
+                            "qa": []
+                        }
+                    
+                    dataset[context_id]["qa"].append({
+                        "question": question,
+                        "answer": answer
+                    })
+                except json.JSONDecodeError as e:
+                    print(f"Warning: Skipping invalid JSON line: {e}")
+                    continue
+                    
+        return dataset, list(dataset.keys())
+
+    def __getitem__(self, index):
+        return self.dataset[self.available_ids[index]]
+
+    def __len__(self):
+        return len(self.available_ids)
+
+
+class InfiniteChoiceLoader:
+    def __init__(self, path = "./InfiniteBench/data/longbook_choice_eng.jsonl"):
+        self.dataset, self.available_ids = self._initialize_dataset(path)
+
+    def _initialize_dataset(self, path):
+        dataset = {}
+        with open(path, "r") as infile:
+            prev_context = ""
+            context_id = -1
+            for line in infile:
+                data = json.loads(line)
+                context = data["context"]
+                question = data["input"]
+                answer = data["answer"]
+                if context != prev_context:
+                    context_id += 1
+                    prev_context = context
+                    dataset[context_id] = {}
+                    dataset[context_id]["book"] = context
+                    dataset[context_id]["qa"] = []
+                qa_dict = {
+                    "question": question,
+                    "answer": answer,
+                    "options": data["options"]
+                }
+                dataset[context_id]["qa"].append(self._format_qa(qa_dict))
+        return dataset, list(dataset.keys())
+
+    def _format_qa(self, qa_dict):
+        res = {}
+        formatted_question = ""
+        formatted_question += qa_dict["question"] + "\n"
+        option_name = ["A", "B", "C", "D"]
+        for i in range(len(qa_dict["options"])):
+            formatted_question += option_name[i] + ". " + qa_dict["options"][i] + "\n"
+            if qa_dict["answer"][0] == qa_dict["options"][i]:
+                res["answer"] = option_name[i]
+        res["question"] = formatted_question
+        return res
     
+    def __getitem__(self, index):
+        data = self.dataset[self.available_ids[index]]
+        return data
+
+    def __len__(self):
+        return len(self.available_ids)
+
+
 class test_loader:
     '''
     data will be returned as a dictionary with :
@@ -169,9 +259,21 @@ class test_loader:
 
 
 if __name__ == "__main__":
-    loader = NarrativeQALoader()
-    print("narrativeqa")
-    loader = NovelQALoader("NovelQA")
-    print(loader[0])
-    loader = test_loader("NovelQA")
-    print(loader[0])    
+    # loader = NarrativeQALoader()
+    # print("narrativeqa")
+    # loader = NovelQALoader("NovelQA")
+    # print(loader[0])
+    # loader = test_loader("NovelQA")
+    # print(loader[0])    
+    loader = InfiniteChoiceLoader()
+    print(loader[0].keys())
+    print(type(loader[0]["book"]))
+    print(loader[0]["qa"])
+    print(len(loader))
+    print(loader.available_ids)
+    loader = InfiniteQALoader()
+    print(loader[0].keys())
+    print(type(loader[0]["book"]))
+    print(loader[0]["qa"])
+    print(len(loader))
+    print(loader.available_ids)
