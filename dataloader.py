@@ -105,7 +105,9 @@ class NarrativeQALoader:
     def __getitem__(self, index):
         return self.dataset[self.available_ids[index]]
 
-
+    def __len__(self):
+        return len(self.available_ids)
+    
 class test_loader:
     '''
     data will be returned as a dictionary with :
