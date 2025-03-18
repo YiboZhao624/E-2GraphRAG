@@ -97,7 +97,7 @@ def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
             # key format: summary_{level}_{i}
             cache["summary_{}_{}".format(level, new_summary_id_count)] = {
                 "text": summary,
-                "children": [f"summary_{level}_{j}" for j in range(i, i+merge_num)],
+                "children": [f"summary_{level-1}_{j}" for j in range(i, i+merge_num)],
                 "parent": [],
             }
             new_summary_id_count += 1
