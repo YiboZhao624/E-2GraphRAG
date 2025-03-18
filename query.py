@@ -23,7 +23,7 @@ class Retriever:
         self.appearance_count = appearance_count
         self.inverse_index = self.get_inverse_index()
         self.nlp = nlp
-        self.device = kwargs.get("device", "cuda:6")
+        self.device = kwargs.get("device", "cuda:1")
         self.merge_num = kwargs.get("merge_num", 5)
         self.min_count = kwargs.get("min_count", 2)
         self.overlap = kwargs.get("overlap", 100)
@@ -83,8 +83,8 @@ class Retriever:
         # only used when the dense retrieval is implemented.
         # return the faiss index.
         docs = self.collapse_tree
-        # print("len of docs", len(docs))
-        tokenizer = self.embedder.tokenizer
+        # # print("len of docs", len(docs))
+        # tokenizer = self.embedder.tokenizer
         # print("max length of docs", max(len(tokenizer.encode(doc)) for doc in docs))
         # print("min length of docs", min(len(tokenizer.encode(doc)) for doc in docs))
         # print("self embedder device", self.embedder.device)
@@ -357,10 +357,12 @@ class Retriever:
     def dense_retrieval(self, query,k):
         # using dense retrieval to get the chunks.
         query_embed = self.embedder.encode(query).reshape(1, -1) # need (1, -1) for faiss.
-        distance, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = k)
+        _, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = k)
         # the normal faiss index return the (1, k) shape. squeeze it to (k,).
         condidate_chunks_indexs = condidate_chunks_indexs[0]
-        return condidate_chunks_indexs
+        condidate_chunk_ids = [self.collapse_tree_ids[i] for i in condidate_chunks_indexs]
+        res = {"": condidate_chunk_ids}
+        return res
 
     def _count_chunks(self, res:Dict[str, List[str]]) -> int:
         # count the chunks.
@@ -379,7 +381,8 @@ class Retriever:
         for key, value in candidate_chunks.items():
             for chunk_id in value:
                 key_count = len(key.split("_"))
-                neighbor_nodes_count = len(self._detect_neighbor_nodes(keys=key, chunk_id=chunk_id))
+                set_key = set(key.split("_"))
+                neighbor_nodes_count = len(self._detect_neighbor_nodes(keys=set_key, chunk_id=chunk_id))
                 entity_count = 0
                 for key_entity in key.split('_'):
                     entity_count += self.appearance_count[chunk_id].get(key_entity, 0)
@@ -397,36 +400,83 @@ class Retriever:
         # get the chunk_ids from the top_25_chunks.
         top_25_chunk_ids = [chunk["chunk_id"] for chunk in top_25_chunks]
         # return the result.
+        filtered_res = {}
         for id in top_25_chunk_ids:
             for entity in entities:
-                if entity in self.index[id]:
+                if entity in self.index.get(id, []):
                     filtered_res.setdefault(entity, []).append(id)
         filtered_res = self.merge_keys(filtered_res)
         return filtered_res
+
+    def _check_children(self, chunk_id:str, entities:List[str], visited=None) -> int:
+        # 添加visited集合来防止循环递归
+        if visited is None:
+            visited = set()
+        
+        # 如果当前chunk_id已经访问过，直接返回0避免重复计算
+        if chunk_id in visited:
+            return 0
+        
+        # 将当前chunk_id添加到已访问集合
+        visited.add(chunk_id)
+        
+        # Initialize a counter for the number of entities found in the children
+        entity_count = 0
+        
+        # Get the children of the chunk_id
+        children = self.cache_tree.get(chunk_id, {}).get("children", [])
+
+        # Iterate through each child and count the entities
+        for child in children:
+            if not child.startswith("leaf_"):
+                entity_count += self._check_children(child, entities, visited)
+            else:
+                # 对于叶子节点，检查实体出现情况
+                chunk_appearance_stat = self.appearance_count.get(child, {})
+                for entity in entities:
+                    entity_count += chunk_appearance_stat.get(entity, 0)
+        
+        return entity_count
 
     def _faiss_entity_filter(self, candidate_chunk_ids:List[str], entities:List[str]) -> Dict[str, List[str]]:
         # filter the chunks that not contain the related entities.
         filtered_res = {}
         filtered_chunk_ids = []
         chunk_count = []
+        
+        # 计算每个chunk的实体出现次数
         for chunk_id in candidate_chunk_ids:
-            chunk_appearance_stat = self.appearance_count[chunk_id]
+            if not chunk_id.startswith("leaf_"):
+                # 对于非叶子节点，使用_check_children计算实体出现次数
+                chunk_count.append(self._check_children(chunk_id, entities))
+                continue
+            
+            # 对于叶子节点，直接计算实体出现次数
+            chunk_appearance_stat = self.appearance_count.get(chunk_id, {})
             this_chunk_count = 0
             for entity in entities:
                 this_chunk_count += chunk_appearance_stat.get(entity, 0)
             chunk_count.append(this_chunk_count)
 
-        # using the [:np.nonzero(chunk_count)[0][-1]+1] to get the non-zero elements. which means the chunk has at least one entity.
-        argsorted_chunk_ids = np.argsort(chunk_count)[::-1][:np.nonzero(chunk_count)[0][-1]+1]
-        filtered_chunk_ids = [candidate_chunk_ids[i] for i in argsorted_chunk_ids]
+        chunk_count = np.array(chunk_count)
+        nonzero_indices = np.nonzero(chunk_count)[0]
+        
+        if len(nonzero_indices) == 0:
+            return {"": candidate_chunk_ids[:25]}
+        
+        # 获取非零元素的索引并排序
+        argsorted_chunk_ids = np.argsort(chunk_count)[::-1]
+        filtered_chunk_ids = [candidate_chunk_ids[i] for i in argsorted_chunk_ids if chunk_count[i] > 0]
+        
         if len(filtered_chunk_ids) > 25:
             filtered_chunk_ids = filtered_chunk_ids[:25]
         
-        # format the result into entity_entityB: [chunk_id1, chunk_id2, ...]
+        # 构建结果字典
         for id in filtered_chunk_ids:
             for entity in entities:
-                if entity in self.index[id]:
+                if entity in self.inverse_index.get(id, []):
                     filtered_res.setdefault(entity, []).append(id)
+        
         filtered_res = self.merge_keys(filtered_res)
         return filtered_res
 
@@ -441,7 +491,14 @@ class Retriever:
 
         # step 2.1: short circuit, if there is no entity, then return the naive dense retrieval.
         if len(entities) == 0:
-            return self.dense_retrieval(query, kwargs.get("max_chunk_setting", 25))
+            chunk_ids = self.dense_retrieval(query, kwargs.get("max_chunk_setting", 25))
+            result = {"chunks":self.format_res(chunk_ids)}
+            if kwargs.get("debug", True):
+                result["chunk_ids"] = chunk_ids
+                result["entities"] = entities
+                result["len_chunks"] = len(chunk_ids)
+                result["chunk_counts_history"] = []
+            return result
 
         # step 2.2: initialize the chunks by wasd method.
         wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
@@ -468,7 +525,7 @@ class Retriever:
 
             result = {"chunks":res_str}
             if kwargs.get("debug", True):
-                chunk_count = self._count_chunks(filtered_chunk_ids)
+                result["chunk_ids"] = filtered_chunk_ids
                 result["entities"] = entities
                 result["neighbor_nodes"] = filtered_chunk_ids
                 result["keys"] = list(filtered_chunk_ids.keys())
@@ -500,6 +557,7 @@ class Retriever:
 
             result = {"chunks":res_str}
             if kwargs.get("debug", True):
+                result["chunk_ids"] = wasd_res
                 result["entities"] = entities
                 result["neighbor_nodes"] = wasd_res
                 result["keys"] = list(wasd_res.keys())
@@ -510,7 +568,8 @@ class Retriever:
             # the previous wasd result is not empty, so we can use it as candidate chunks.
             candidate_chunks = prev_wasd_res
             res_ids = self.entity_filter(candidate_chunks, entities)
-            result["chunks"] = res_str
+            res_str = self.format_res(res_ids)
+            result = {"chunks":res_str}
             result["chunk_counts_history"] = chunk_counts_history
             return result        
 
@@ -519,9 +578,10 @@ if __name__ == "__main__":
     import json
     from extract_graph import load_cache
     cache_tree = json.load(open("cache/wo_faiss/NovelQA/81/tree.json", "r"))
-    G, index = load_cache("cache/wo_faiss/NovelQA/81")
+    G, index, appearance_count = load_cache("cache/wo_faiss/NovelQA/81")
     nlp = spacy.load("en_core_web_sm")
-    retriever = Retriever(cache_tree, G, index, nlp)
-    query = "What is the main character of the novel?"
-    result = retriever.query(query)
-    print(result)
+    retriever = Retriever(cache_tree, G, index, appearance_count, nlp, device="cuda:1")
+    query = ["who commit suicide?","What is the main character of the novel?","Did Violet's heart become stone eventually?","Why did Molly want to find Longcoat Bob so eagerly?"]
+    for q in query:
+        result = retriever.query(q)
+        print(result)
