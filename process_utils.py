@@ -53,10 +53,10 @@ def extract_graph_task(args):
     try:
         # Load NLP model in subprocess
         nlp = load_nlp()
-        (result, index), time_cost = extract_graph(text, cache_folder, nlp)
+        (result, index, count), time_cost = extract_graph(text, cache_folder, nlp)
         print(f"extract graph task result type: {type(result)}")
         print(f"extract graph task time cost: {time_cost}, -1 means load from cache.")
-        return (result, index), time_cost
+        return (result, index, count), time_cost
     finally:
         # Clean up
         del nlp 
