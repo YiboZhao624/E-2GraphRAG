@@ -18,6 +18,8 @@ import time
 from process_utils import build_tree_task, extract_graph_task, clean_cuda_memory
 import gc
 from datetime import datetime
+from utils import load_dataset
+
 def parse_args():
     # parser = argparse.ArgumentParser()
     # parser.add_argument("--dataset", type=str, required=True)
@@ -126,17 +128,7 @@ def main():
         device_id = int(configs["llm"]["llm_device"].split(':')[1]) if ':' in configs["llm"]["llm_device"] else 0
 
         # load the dataset.
-        if configs["dataset"]["dataset_name"] == "NovelQA":
-            dataset = NovelQALoader(configs["dataset"]["dataset_path"])
-
-        elif configs["dataset"]["dataset_name"] == "NarrativeQA":
-            dataset = NarrativeQALoader()
-
-        elif configs["dataset"]["dataset_name"] == "test":
-            dataset = test_loader(configs["dataset"]["dataset_path"])
-            
-        else:
-            raise ValueError("Invalid dataset")
+        dataset = load_dataset(configs["dataset"]["dataset_name"], configs["dataset"]["dataset_path"])
 
         # Load tokenizer for text splitting
         tokenizer = AutoTokenizer.from_pretrained(configs["llm"]["llm_path"])
@@ -163,7 +155,7 @@ def main():
                 )
                 
                 # Load model for QA
-                if configs["dataset"]["dataset_name"] == "NovelQA":
+                if configs["dataset"]["dataset_name"] == "NovelQA" or configs["dataset"]["dataset_name"] == "InfiniteChoice":
                     if "Qwen2" in configs["llm"]["llm_path"]:
                         from transformers import Qwen2ForCausalLM
                         llm = Qwen2ForCausalLM.from_pretrained(
@@ -178,7 +170,7 @@ def main():
                         )
                     llm.eval()
                     llm.to(configs["llm"]["llm_device"])
-                elif configs["dataset"]["dataset_name"] == "NarrativeQA":
+                elif configs["dataset"]["dataset_name"] == "NarrativeQA" or configs["dataset"]["dataset_name"] == "InfiniteQALoader":
                     llm = pipeline("text-generation", model=configs["llm"]["llm_path"], tokenizer=tokenizer, device=configs["llm"]["llm_device"])
                 else:
                     raise ValueError("Invalid dataset")
@@ -218,19 +210,13 @@ def main():
                             print(traceback.format_exc())
                             raise e
 
-                        if configs["dataset"]["dataset_name"] == "NovelQA" or configs["dataset"]["dataset_name"] == "test":
+                        if configs["dataset"]["dataset_name"] == "NovelQA" or configs["dataset"]["dataset_name"] == "test" or configs["dataset"]["dataset_name"] == "InfiniteChoice":
                             input_text = Prompts["QA_prompt_options"].format(question = question,evidence = evidences)
                             # TODO: input the text to the model and get the probs of options.
                             try:
                                 inputs = tokenizer(input_text, return_tensors="pt").to(configs["llm"]["llm_device"])
                                 with torch.no_grad():
                                     print("inputs token length: ", inputs.input_ids.shape[-1])
-                                    if inputs.input_ids.shape[-1] > 10240 and model_supplement["len_chunks"] < 5:
-                                        print("\n\nERROR: the length of the input text is too long, please check the evidence.\n\n")
-                                        print("inputs: ", input_text)
-                                        print("\n\n")
-                                        print(model_supplement)
-                                        raise
                                     output_logits = llm(**inputs).logits[0,-1]
                             except Exception as e:
                                 print(f"Error occurred: {e}")
@@ -250,7 +236,7 @@ def main():
                             ).detach().cpu().numpy()
                             output_text = ["A", "B", "C", "D"][np.argmax(probs)]
 
-                        elif configs["dataset"]["dataset_name"] == "NarrativeQA":
+                        elif configs["dataset"]["dataset_name"] == "NarrativeQA" or configs["dataset"]["dataset_name"] == "InfiniteQALoader":
                             input_text = Prompts["QA_prompt_answer"].format(question = question,
                                                         evidence = model_supplement)
                             output = llm(input_text, max_new_tokens = 20)
@@ -283,6 +269,7 @@ def main():
                 finally:                    
                     if 'llm' in locals():
                         del llm
+                        print("llm deleted")
                         torch.cuda.empty_cache()
                         torch.cuda.synchronize()
                 
