@@ -129,7 +129,7 @@ class InfiniteQALoader:
                         context_id += 1
                         prev_context = context
                         dataset[context_id] = {
-                            "book": context,  # Add book field to match other loaders
+                            "book": context,
                             "qa": []
                         }
                     
@@ -254,9 +254,6 @@ class test_loader:
 
     def __len__(self):
         return 1
-
-
-
 
 if __name__ == "__main__":
     # loader = NarrativeQALoader()
