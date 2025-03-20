@@ -289,7 +289,7 @@ class Retriever:
         # otherwise, the only id will be a list.
         res = []
         current_chunk = []
-
+        chunk_ids = sorted(chunk_ids, key=lambda x: int(x.split("_")[1]))
         for chunk_id in chunk_ids:
             # Extract the numeric part of the chunk_id
             id_num = int(chunk_id.split("_")[1])
@@ -571,6 +571,13 @@ class Retriever:
             res_str = self.format_res(res_ids)
             result = {"chunks":res_str}
             result["chunk_counts_history"] = chunk_counts_history
+            if kwargs.get("debug", True):
+                result["chunk_ids"] = wasd_res
+                result["entities"] = entities
+                result["neighbor_nodes"] = wasd_res
+                result["keys"] = list(wasd_res.keys())
+                result["len_chunks"] = chunk_count
+                result["chunk_counts_history"] = chunk_counts_history
             return result        
 
 
