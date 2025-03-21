@@ -568,14 +568,15 @@ class Retriever:
             # the previous wasd result is not empty, so we can use it as candidate chunks.
             candidate_chunks = prev_wasd_res
             res_ids = self.entity_filter(candidate_chunks, entities)
+            chunk_count = self._count_chunks(res_ids)
             res_str = self.format_res(res_ids)
             result = {"chunks":res_str}
             result["chunk_counts_history"] = chunk_counts_history
             if kwargs.get("debug", True):
-                result["chunk_ids"] = wasd_res
+                result["chunk_ids"] = res_ids
                 result["entities"] = entities
-                result["neighbor_nodes"] = wasd_res
-                result["keys"] = list(wasd_res.keys())
+                result["neighbor_nodes"] = res_ids
+                result["keys"] = list(res_ids.keys())
                 result["len_chunks"] = chunk_count
                 result["chunk_counts_history"] = chunk_counts_history
             return result        
