@@ -200,9 +200,6 @@ def main():
                             print("len_chunks: ", model_supplement.get("len_chunks", 0))
                             print("entities: ", model_supplement.get("entities", []))
                             print("keys: ", model_supplement.get("keys", []))
-                            # print(len(evidences))
-                            # evidences = "\n".join(evidences)
-                            # TODO for debug.
                             
                         except Exception as e:
                             print(f"Error occurred: {e}")
@@ -212,7 +209,6 @@ def main():
 
                         if configs["dataset"]["dataset_name"] == "NovelQA" or configs["dataset"]["dataset_name"] == "test" or configs["dataset"]["dataset_name"] == "InfiniteChoice":
                             input_text = Prompts["QA_prompt_options"].format(question = question,evidence = evidences)
-                            # TODO: input the text to the model and get the probs of options.
                             try:
                                 inputs = tokenizer(input_text, return_tensors="pt").to(configs["llm"]["llm_device"])
                                 with torch.no_grad():
@@ -239,6 +235,7 @@ def main():
                         elif configs["dataset"]["dataset_name"] == "NarrativeQA" or configs["dataset"]["dataset_name"] == "InfiniteQALoader":
                             input_text = Prompts["QA_prompt_answer"].format(question = question,
                                                         evidence = model_supplement)
+                            print("input_text: ", len(input_text))
                             output = llm(input_text, max_new_tokens = 20)
                             output_text = output[0]["generated_text"]
                             output_text = output_text[len(input_text):]
