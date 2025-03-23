@@ -1,7 +1,7 @@
 from typing import List
 from transformers import AutoTokenizer
 from rouge import Rouge
-from dataloader import NovelQALoader, NarrativeQALoader, test_loader
+from dataloader import NovelQALoader, NarrativeQALoader, test_loader, InfiniteChoiceLoader, InfiniteQALoader
 import json,os
 from extract_graph import build_graph
 
@@ -12,6 +12,10 @@ def load_dataset(dataset_name:str, dataset_path:str):
         return NarrativeQALoader()
     elif dataset_name == "test":
         return test_loader(dataset_path)
+    elif dataset_name == "InfiniteChoice":
+        return InfiniteChoiceLoader(dataset_path)
+    elif dataset_name == "InfiniteQALoader":
+        return InfiniteQALoader(dataset_path)
     else:
         raise ValueError("Invalid dataset")
 
