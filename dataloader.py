@@ -255,22 +255,47 @@ class test_loader:
     def __len__(self):
         return 1
 
+class temp_loader:
+    def __init__(self, path):
+        self.dataset = self._initialize_dataset(path)
+        self.available_ids = [0]
+        
+    def _initialize_dataset(self, path):
+        with open(path, "r") as infile:
+            document = infile.read()
+        to_return = [{
+            "book": document,
+            "qa": []
+        }]
+        return to_return
+        
+    def __getitem__(self, index):
+        return self.dataset[index]
+
+    def __len__(self):
+        return len(self.dataset)
+
+
+
 if __name__ == "__main__":
     # loader = NarrativeQALoader()
     # print("narrativeqa")
-    # loader = NovelQALoader("NovelQA")
-    # print(loader[0])
-    # loader = test_loader("NovelQA")
-    # print(loader[0])    
+    loader = NovelQALoader("NovelQA")
+    print(loader[0]["qa"][0])    
+    print(loader[0]["qa"][0]["question"].split("\n")[0])
+    # loader = temp_loader("test_temp/doc.txt")
+    # print(loader[0]["book"])
+    # print(loader[0]["qa"])
+    # raise Exception("stop")
     loader = InfiniteChoiceLoader()
     print(loader[0].keys())
     print(type(loader[0]["book"]))
     print(loader[0]["qa"])
-    print(len(loader))
-    print(loader.available_ids)
-    loader = InfiniteQALoader()
-    print(loader[0].keys())
-    print(type(loader[0]["book"]))
-    print(loader[0]["qa"])
-    print(len(loader))
-    print(loader.available_ids)
+    
+    
+    # loader = InfiniteQALoader()
+    # print(loader[0].keys())
+    # print(type(loader[0]["book"]))
+    # print(loader[0]["qa"])
+    # print(len(loader))
+    # print(loader.available_ids)
