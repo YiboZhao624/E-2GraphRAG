@@ -9,6 +9,8 @@ from collections import defaultdict
 from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer
 import torch
+import random
+random.seed(1)
 import copy
 import numpy as np
 
@@ -23,11 +25,10 @@ class Retriever:
         self.appearance_count = appearance_count
         self.inverse_index = self.get_inverse_index()
         self.nlp = nlp
-        self.device = kwargs.get("device", "cuda:1")
+        self.device = kwargs.get("device", "cuda:0")
         self.merge_num = kwargs.get("merge_num", 5)
         self.min_count = kwargs.get("min_count", 2)
         self.overlap = kwargs.get("overlap", 100)
-        #TODO a desk path.
         self.tokenizer = kwargs.get("tokenizer","/root/shared_planing/LLM_model/Qwen2.5-7B-Instruct")
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer)
         if kwargs.get("embedder", "BAAI/bge-m3") is not None:
@@ -83,14 +84,6 @@ class Retriever:
         # only used when the dense retrieval is implemented.
         # return the faiss index.
         docs = self.collapse_tree
-        # # print("len of docs", len(docs))
-        # tokenizer = self.embedder.tokenizer
-        # print("max length of docs", max(len(tokenizer.encode(doc)) for doc in docs))
-        # print("min length of docs", min(len(tokenizer.encode(doc)) for doc in docs))
-        # print("self embedder device", self.embedder.device)
-        # use the embedder to embed the docs.
-        # use the faiss to build the index.
-        # return the faiss index.
         if self.embedder is None:
             self.embedder = SentenceTransformer("BAAI/bge-m3",device=self.device)
             self.embedder.eval()
@@ -192,51 +185,43 @@ class Retriever:
         
         return valid_child_ids
 
-    # def get_leaf_chunks(self, valid_father_nodes:List[str]) -> List[str]:
-    #     # get the leaf chunks from the father nodes.
-    #     # get the direct children of the father nodes.
-    #     leaf_nodes = []
-    #     for father_node in valid_father_nodes:
-    #         children = self.cache_tree[father_node]["children"]
-    #         leaf_nodes.extend([child for child in children if child in ])
-
-    def _detect_neighbor_nodes(self, keys:Set[str], chunk_id: str) -> List[str]:
-        # detect the neighbor nodes of the chunk_id.
-        # return the neighbor nodes.
-        int_chunk_id = int(chunk_id.split("_")[-1])
-        front = True
-        back = True
-        neighbor_nodes = [chunk_id]
-        front_int_chunk_id = int_chunk_id
-        back_int_chunk_id = int_chunk_id
-        while front or back:
-            if front:
-                front_int_chunk_id = front_int_chunk_id - 1
-                if front_int_chunk_id < 0 or set(self.inverse_index.get(front_int_chunk_id, [])) & keys != keys:
-                    front = False
-                str_chunk_id = "leaf_{}".format(front_int_chunk_id)
-                append = True
-                for key in keys:
-                    if str_chunk_id not in self.index.get(key, []):
-                        append = False
-                        front = False
-                        break
-                if append:
-                    neighbor_nodes.append(str_chunk_id)
-            if back:
-                back_int_chunk_id += 1
-                if set(self.inverse_index.get(back_int_chunk_id, [])) & keys != keys:
-                    back = False
-                str_chunk_id = "leaf_{}".format(back_int_chunk_id)
-                append = True
-                for key in keys:
-                    if str_chunk_id not in self.index.get(key, []):
-                        append = False
-                        back = False
-                        break
-                if append:
-                    neighbor_nodes.append(str_chunk_id)
-        return neighbor_nodes
+    # def _detect_neighbor_nodes(self, keys:Set[str], chunk_id: str) -> List[str]:
+    #     # detect the neighbor nodes of the chunk_id.
+    #     # return the neighbor nodes.
+    #     int_chunk_id = int(chunk_id.split("_")[-1])
+    #     front = True
+    #     back = True
+    #     neighbor_nodes = [chunk_id]
+    #     front_int_chunk_id = int_chunk_id
+    #     back_int_chunk_id = int_chunk_id
+    #     while front or back:
+    #         if front:
+    #             front_int_chunk_id = front_int_chunk_id - 1
+    #             if front_int_chunk_id < 0 or set(self.inverse_index.get(front_int_chunk_id, [])) & keys != keys:
+    #                 front = False
+    #             str_chunk_id = "leaf_{}".format(front_int_chunk_id)
+    #             append = True
+    #             for key in keys:
+    #                 if str_chunk_id not in self.index.get(key, []):
+    #                     append = False
+    #                     front = False
+    #                     break
+    #             if append:
+    #                 neighbor_nodes.append(str_chunk_id)
+    #         if back:
+    #             back_int_chunk_id += 1
+    #             if set(self.inverse_index.get(back_int_chunk_id, [])) & keys != keys:
+    #                 back = False
+    #             str_chunk_id = "leaf_{}".format(back_int_chunk_id)
+    #             append = True
+    #             for key in keys:
+    #                 if str_chunk_id not in self.index.get(key, []):
+    #                     append = False
+    #                     back = False
+    #                     break
+    #             if append:
+    #                 neighbor_nodes.append(str_chunk_id)
+    #     return neighbor_nodes
 
     def get_neighbor_chunks(self, leaf_nodes:List[str]) -> List[str]:
         # get the neighbor chunks from the leaf nodes.
@@ -329,30 +314,64 @@ class Retriever:
         # initialize the chunks.
         init_chunk_ids = self.get_chunks(shortest_path)
         # it returns a dict, key is entityA_entityB, value is the sorted list of chunk ids.
-        
-        # w+s step, get the valid chunks by checking the father of the leaves.
-        valid_child_ids = self.validate_by_checking_father_chunks(init_chunk_ids, min_count)
-        # it won't change the data structure, just filter the chunks.
+        ##################### tree filter, not work ################
+        # # w+s step, get the valid chunks by checking the father of the leaves.
+        # valid_child_ids = self.validate_by_checking_father_chunks(init_chunk_ids, min_count)
+        # # it won't change the data structure, just filter the chunks.
 
-        # a+d step, search the neighbor of the leaf nodes.
-        neighbor_nodes = self.get_neighbor_chunks(valid_child_ids)
-        # won't change the data structure, just add the chunks.
+        # # a+d step, search the neighbor of the leaf nodes.
+        # neighbor_nodes = self.get_neighbor_chunks(valid_child_ids)
+        # # won't change the data structure, just add the chunks.
         
         # merge the nodes with different keys, the structure is still the same.
-        neighbor_nodes = self.merge_keys(neighbor_nodes)
+        neighbor_nodes = self.merge_keys(init_chunk_ids)
         return neighbor_nodes
 
-    # def filter_chunk_by_entities(self, condidate_chunk_ids:List[str], entities:List[str]) -> List[str]:
-    #     # filter the chunks that not contain the related entities.
-    #     filtered_chunk_ids = []
-    #     for chunk_id in condidate_chunk_ids:
-    #         if chunk_id in self.index.keys():
-    #             if set(self.index[chunk_id]) & set(entities):
-    #                 filtered_chunk_ids.append(chunk_id)
-    #     res = {}
-    #     for entity in entities:
-    #         res[entity] = filtered_chunk_ids
-    #     return res
+    def wasd_ablation(self, entities:List[str], shortest_path_k:int=4, min_count:int=2, abtype = "")->Dict[str, List[str]]:
+        if abtype == "wo_graphfilter" or abtype == "wo_GF&EAR":
+            shortest_path_pairs = []
+            for entity1, entity2 in combinations(entities, 2):
+                shortest_path_pairs.append((entity1, entity2))
+            init_chunk_ids = self.get_chunks(shortest_path_pairs)
+            neighbor_nodes = self.merge_keys(init_chunk_ids)
+            return neighbor_nodes
+
+    #     if abtype == "wo_treefilter":
+    #         shortest_path = self.get_shortest_path(entities, shortest_path_k) 
+    #         # it returns the list of pairs existing shortest path shorter than k.
+    #         init_chunk_ids = self.get_chunks(shortest_path)
+    #         init_chunk_ids = self.merge_keys(init_chunk_ids)
+    #         return init_chunk_ids
+        
+    #     shortest_path = self.get_shortest_path(entities, shortest_path_k) 
+    #     # it returns the list of pairs existing shortest path shorter than k.
+        
+    #     # initialize the chunks.
+    #     init_chunk_ids = self.get_chunks(shortest_path)
+    #     if abtype == "wo_fatherfilter":
+    #         neighbor_nodes = self.get_neighbor_chunks(init_chunk_ids)
+    #         # won't change the data structure, just add the chunks.
+            
+    #         # merge the nodes with different keys, the structure is still the same.
+    #         neighbor_nodes = self.merge_keys(neighbor_nodes)
+    #         return neighbor_nodes
+    #     elif abtype == "wo_neighbordetection":
+    #         valid_child_ids = self.validate_by_checking_father_chunks(init_chunk_ids, min_count)
+    #         neighbor_nodes = self.merge_keys(valid_child_ids)
+    #         return neighbor_nodes
+    #     else:
+    #         raise NotImplementedError("The ablation type {} is not implemented.".format(abtype))
+    # # def filter_chunk_by_entities(self, condidate_chunk_ids:List[str], entities:List[str]) -> List[str]:
+    # #     # filter the chunks that not contain the related entities.
+    # #     filtered_chunk_ids = []
+    # #     for chunk_id in condidate_chunk_ids:
+    # #         if chunk_id in self.index.keys():
+    # #             if set(self.index[chunk_id]) & set(entities):
+    # #                 filtered_chunk_ids.append(chunk_id)
+    # #     res = {}
+    # #     for entity in entities:
+    # #         res[entity] = filtered_chunk_ids
+    # #     return res
 
     def dense_retrieval(self, query,k):
         # using dense retrieval to get the chunks.
@@ -371,7 +390,7 @@ class Retriever:
             count += len(chunk_ids)
         return count
 
-    def entity_filter(self, candidate_chunks:Dict[str, List[str]], entities:List[str]) -> Dict[str, List[str]]:
+    def entityaware_filter(self, candidate_chunks:Dict[str, List[str]], entities:List[str]) -> Dict[str, List[str]]:
         # filter rules:
         # 1. the chunk includes more different entities, the priority is higher.
         # 2. if the chunk has longer neighbor nodes, the priority is higher.
@@ -403,9 +422,10 @@ class Retriever:
         filtered_res = {}
         for id in top_25_chunk_ids:
             for entity in entities:
-                if entity in self.index.get(id, []):
+                if id in self.index.get(entity, []):
                     filtered_res.setdefault(entity, []).append(id)
         filtered_res = self.merge_keys(filtered_res)
+        print("filtered_res,",filtered_res)
         return filtered_res
 
     def _check_children(self, chunk_id:str, entities:List[str], visited=None) -> int:
@@ -444,14 +464,11 @@ class Retriever:
         filtered_chunk_ids = []
         chunk_count = []
         
-        # 计算每个chunk的实体出现次数
         for chunk_id in candidate_chunk_ids:
             if not chunk_id.startswith("leaf_"):
-                # 对于非叶子节点，使用_check_children计算实体出现次数
                 chunk_count.append(self._check_children(chunk_id, entities))
                 continue
             
-            # 对于叶子节点，直接计算实体出现次数
             chunk_appearance_stat = self.appearance_count.get(chunk_id, {})
             this_chunk_count = 0
             for entity in entities:
@@ -464,14 +481,12 @@ class Retriever:
         if len(nonzero_indices) == 0:
             return {"": candidate_chunk_ids[:25]}
         
-        # 获取非零元素的索引并排序
         argsorted_chunk_ids = np.argsort(chunk_count)[::-1]
         filtered_chunk_ids = [candidate_chunk_ids[i] for i in argsorted_chunk_ids if chunk_count[i] > 0]
         
         if len(filtered_chunk_ids) > 25:
             filtered_chunk_ids = filtered_chunk_ids[:25]
         
-        # 构建结果字典
         for id in filtered_chunk_ids:
             for entity in entities:
                 if entity in self.inverse_index.get(id, []):
@@ -480,9 +495,395 @@ class Retriever:
         filtered_res = self.merge_keys(filtered_res)
         return filtered_res
 
+    def _ablation_query(self, query, **kwargs):
+        '''
+        conduct the ablation study for the query.
+        ablation_type:
+        1. faiss only. means we only leverage the tree and the vector based retrieval.
+        '''
+        ablation_type = kwargs.get("ablation_type", "faiss_only")
+        if ablation_type == "faiss_only":
+            chunk_ids = self.dense_retrieval(query, kwargs.get("max_chunk_setting", 25))
+            result = {"chunks":self.format_res(chunk_ids)}
+            if kwargs.get("debug", True):
+                supplement_info = self._build_supplement_info(chunk_ids, None, chunk_ids, list(chunk_ids.keys()), len(chunk_ids[""]), [])
+                result.update(supplement_info)
+            return result
+
+        elif ablation_type == "wo_graphfilter" or ablation_type == "wo_treefilter" or ablation_type == "wo_neighbordetection" or ablation_type == "wo_fatherfilter":
+            entities = naive_extract_graph(query.split("\n")[0], self.nlp)["nouns"]
+            shortest_path_k = kwargs.get("shortest_path_k", 4)
+            min_count = kwargs.get("min_count", 2)
+            if len(entities) == 0:
+                chunk_ids = self.dense_retrieval(query, kwargs.get("max_chunk_setting", 25))
+                result = {"chunks":self.format_res(chunk_ids)}
+                if kwargs.get("debug", True):
+                    supplement_info = self._build_supplement_info(chunk_ids, entities, chunk_ids, list(chunk_ids.keys()), len(chunk_ids), [])
+                    result.update(supplement_info)
+                    result["is_global_retrieval"] = True
+                return result
+            wasd_res = self.wasd_ablation(entities, shortest_path_k, min_count, ablation_type)
+            chunk_count = self._count_chunks(wasd_res)
+            chunk_counts_history = []
+            chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
+
+            if chunk_count == 0:
+                query_embed = self.embedder.encode(query).reshape(1, -1) # need (1, -1) for faiss.
+                _, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = 25 *2)
+                # the normal faiss index return the (1, k) shape. squeeze it to (k,).
+                condidate_chunks_indexs = condidate_chunks_indexs[0]
+                condidate_chunk_ids = [self.collapse_tree_ids[i] for i in condidate_chunks_indexs]
+                filtered_chunk_ids = self._faiss_entity_filter(condidate_chunk_ids, entities) 
+                # return the entity_entityB: [chunk_id1, chunk_id2, ...]
+                res_str = self.format_res(filtered_chunk_ids)
+
+                result = {"chunks":res_str}
+                if kwargs.get("debug", True):
+                    supplement_info = self._build_supplement_info(filtered_chunk_ids, entities, filtered_chunk_ids, list(filtered_chunk_ids.keys()), chunk_count, chunk_counts_history)
+                    result.update(supplement_info)
+                return result
+            
+            else:
+                candidate_chunks = wasd_res
+                res_ids = self.entityaware_filter(candidate_chunks, entities)
+                chunk_count = self._count_chunks(res_ids)
+                res_str = self.format_res(res_ids)
+                result = {"chunks":res_str}
+                result["chunk_counts_history"] = chunk_counts_history
+                if kwargs.get("debug", True):
+                    supplement_info = self._build_supplement_info(res_ids, entities, res_ids, list(res_ids.keys()), chunk_count, chunk_counts_history)
+                    result.update(supplement_info)
+                return result
+            
+        elif ablation_type == "wo_GR&OR":
+            entities = naive_extract_graph(query.split("\n")[0], self.nlp)["nouns"]
+            shortest_path_k = kwargs.get("shortest_path_k", 4)
+            min_count = kwargs.get("min_count", 2)
+            if len(entities) == 0:
+                # NOTE: without global retrieval, the result is empty.
+                return {"chunks":""}
+            wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
+            chunk_count = self._count_chunks(wasd_res)
+            chunk_counts_history = []
+            chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
+
+            if chunk_count == 0:
+                result = {"chunks":""}
+                return result
+            
+            else:
+                flag = 0
+                while chunk_count > kwargs.get("max_chunk_setting", 25):
+                    prev_wasd_res = copy.deepcopy(wasd_res)
+                    if flag == 0:
+                        shortest_path_k -= 1
+                        flag = 1
+                    else:
+                        min_count += 1
+                        flag = 0
+                    wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
+                    chunk_count = self._count_chunks(wasd_res)
+                    chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
+                if chunk_count != 0:
+                    print("BOTTOM2TOP: final chunk_count", chunk_count)
+                    res_str = self.format_res(wasd_res)
+
+                    result = {"chunks":res_str}
+                    if kwargs.get("debug", True):
+                        supplement_info = self._build_supplement_info(wasd_res, entities, wasd_res, list(wasd_res.keys()), chunk_count, chunk_counts_history)
+                        result.update(supplement_info)
+                    return result
+                else:
+                    candidate_chunks = prev_wasd_res
+                    res_ids = self.entityaware_filter(candidate_chunks, entities)
+                    chunk_count = self._count_chunks(res_ids)
+                    res_str = self.format_res(res_ids)
+                    result = {"chunks":res_str}
+                    result["chunk_counts_history"] = chunk_counts_history
+                    if kwargs.get("debug", True):
+                        supplement_info = self._build_supplement_info(res_ids, entities, res_ids, list(res_ids.keys()), chunk_count, chunk_counts_history)
+                        result.update(supplement_info)
+                    return result
+
+
+        elif ablation_type == "wo_global_retrieval":
+            entities = naive_extract_graph(query.split("\n")[0], self.nlp)["nouns"]
+            shortest_path_k = kwargs.get("shortest_path_k", 4)
+            min_count = kwargs.get("min_count", 2)
+            if len(entities) == 0:
+                # NOTE: without global retrieval, the result is empty.
+                return {"chunks":""}
+            wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
+            chunk_count = self._count_chunks(wasd_res)
+            chunk_counts_history = []
+            chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
+
+            if chunk_count == 0:
+                query_embed = self.embedder.encode(query).reshape(1, -1) # need (1, -1) for faiss.
+                _, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = 25 *2)
+                # the normal faiss index return the (1, k) shape. squeeze it to (k,).
+                condidate_chunks_indexs = condidate_chunks_indexs[0]
+                condidate_chunk_ids = [self.collapse_tree_ids[i] for i in condidate_chunks_indexs]
+                filtered_chunk_ids = self._faiss_entity_filter(condidate_chunk_ids, entities) 
+                # return the entity_entityB: [chunk_id1, chunk_id2, ...]
+                res_str = self.format_res(filtered_chunk_ids)
+
+                result = {"chunks":res_str}
+                if kwargs.get("debug", True):
+                    supplement_info = self._build_supplement_info(filtered_chunk_ids, entities, filtered_chunk_ids, list(filtered_chunk_ids.keys()), chunk_count, chunk_counts_history)
+                    result.update(supplement_info)
+                return result
+            
+            else:
+                flag = 0
+                while chunk_count > kwargs.get("max_chunk_setting", 25):
+                    prev_wasd_res = copy.deepcopy(wasd_res)
+                    if flag == 0:
+                        shortest_path_k -= 1
+                        flag = 1
+                    else:
+                        min_count += 1
+                        flag = 0
+                    wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
+                    chunk_count = self._count_chunks(wasd_res)
+                    chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
+                if chunk_count != 0:
+                    print("BOTTOM2TOP: final chunk_count", chunk_count)
+                    res_str = self.format_res(wasd_res)
+
+                    result = {"chunks":res_str}
+                    if kwargs.get("debug", True):
+                        supplement_info = self._build_supplement_info(wasd_res, entities, wasd_res, list(wasd_res.keys()), chunk_count, chunk_counts_history)
+                        result.update(supplement_info)
+                    return result
+                else:
+                    candidate_chunks = prev_wasd_res
+                    res_ids = self.entityaware_filter(candidate_chunks, entities)
+                    chunk_count = self._count_chunks(res_ids)
+                    res_str = self.format_res(res_ids)
+                    result = {"chunks":res_str}
+                    result["chunk_counts_history"] = chunk_counts_history
+                    if kwargs.get("debug", True):
+                        supplement_info = self._build_supplement_info(res_ids, entities, res_ids, list(res_ids.keys()), chunk_count, chunk_counts_history)
+                        result.update(supplement_info)
+                    return result  
+
+
+        elif ablation_type == "wo_entityawarefilter":
+            entities = naive_extract_graph(query.split("\n")[0], self.nlp)["nouns"]
+            shortest_path_k = kwargs.get("shortest_path_k", 4)
+            min_count = kwargs.get("min_count", 2)
+            if len(entities) == 0:
+                chunk_ids = self.dense_retrieval(query, kwargs.get("max_chunk_setting", 25))
+                result = {"chunks":self.format_res(chunk_ids)}
+                if kwargs.get("debug", True):
+                    supplement_info = self._build_supplement_info(chunk_ids, entities, chunk_ids, list(chunk_ids.keys()), len(chunk_ids), [])
+                    result.update(supplement_info)
+                    result["is_global_retrieval"] = True
+                return result
+            wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
+            chunk_count = self._count_chunks(wasd_res)
+            chunk_counts_history = []
+            chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
+
+            if chunk_count == 0:
+                query_embed = self.embedder.encode(query).reshape(1, -1) # need (1, -1) for faiss.
+                _, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = 25 *2)
+                # the normal faiss index return the (1, k) shape. squeeze it to (k,).
+                condidate_chunks_indexs = condidate_chunks_indexs[0]
+                condidate_chunk_ids = [self.collapse_tree_ids[i] for i in condidate_chunks_indexs]
+                filtered_chunk_ids = self._faiss_entity_filter(condidate_chunk_ids, entities) 
+                # return the entity_entityB: [chunk_id1, chunk_id2, ...]
+                res_str = self.format_res(filtered_chunk_ids)
+
+                result = {"chunks":res_str}
+                if kwargs.get("debug", True):
+                    supplement_info = self._build_supplement_info(filtered_chunk_ids, entities, filtered_chunk_ids, list(filtered_chunk_ids.keys()), 25, chunk_counts_history)
+                    result.update(supplement_info)
+                return result
+            
+            else:
+                flag = 0
+                while chunk_count > kwargs.get("max_chunk_setting", 25):
+                    prev_wasd_res = copy.deepcopy(wasd_res)
+                    if flag == 0:
+                        shortest_path_k -= 1
+                        flag = 1
+                    else:
+                        min_count += 1
+                        flag = 0
+                    wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
+                    chunk_count = self._count_chunks(wasd_res)
+                    chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
+                if chunk_count != 0:
+                    print("BOTTOM2TOP: final chunk_count", chunk_count)
+                    res_str = self.format_res(wasd_res)
+
+                    result = {"chunks":res_str}
+                    if kwargs.get("debug", True):
+                        supplement_info = self._build_supplement_info(wasd_res, entities, wasd_res, list(wasd_res.keys()), chunk_count, chunk_counts_history)
+                        result.update(supplement_info)
+                    return result
+                else:
+                    candidate_chunks = prev_wasd_res
+                    all_chunks = []
+                    for key in candidate_chunks:
+                        all_chunks.extend(candidate_chunks[key])
+                    if len(all_chunks) > 25:
+                        selected_chunks = random.sample(all_chunks, 25)
+                    else:
+                        selected_chunks = all_chunks
+                    
+                    res_ids = {}
+                    for chunk in selected_chunks:
+                        # 找到chunk所属的key
+                        for key in candidate_chunks:
+                            if chunk in candidate_chunks[key]:
+                                if key not in res_ids:
+                                    res_ids[key] = []
+                                res_ids[key].append(chunk)
+                                break
+                    chunk_count = self._count_chunks(res_ids)
+                    res_str = self.format_res(res_ids)
+                    result = {"chunks":res_str}
+                    result["chunk_counts_history"] = chunk_counts_history
+                    if kwargs.get("debug", True):
+                        supplement_info = self._build_supplement_info(res_ids, entities, res_ids, list(res_ids.keys()), chunk_count, chunk_counts_history)
+                        result.update(supplement_info)
+                    return result  
+
+
+        elif ablation_type == "wo_occurrencefilter":
+            entities = naive_extract_graph(query.split("\n")[0], self.nlp)["nouns"]
+            shortest_path_k = kwargs.get("shortest_path_k", 4)
+            min_count = kwargs.get("min_count", 2)
+            if len(entities) == 0:
+                chunk_ids = self.dense_retrieval(query, kwargs.get("max_chunk_setting", 25))
+                result = {"chunks":self.format_res(chunk_ids)}
+                if kwargs.get("debug", True):
+                    supplement_info = self._build_supplement_info(chunk_ids, entities, chunk_ids, list(chunk_ids.keys()), len(chunk_ids), [])
+                    result.update(supplement_info)
+                    result["is_global_retrieval"] = True
+                return result
+            wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
+            chunk_count = self._count_chunks(wasd_res)
+            chunk_counts_history = []
+            chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
+
+            if chunk_count == 0:
+                # use dense retrieval to get the chunks.
+                result = {"chunks":""}
+                return result
+            
+            else:
+                flag = 0
+                while chunk_count > kwargs.get("max_chunk_setting", 25):
+                    prev_wasd_res = copy.deepcopy(wasd_res)
+                    if flag == 0:
+                        shortest_path_k -= 1
+                        flag = 1
+                    else:
+                        min_count += 1
+                        flag = 0
+                    wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
+                    chunk_count = self._count_chunks(wasd_res)
+                    chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
+                if chunk_count != 0:
+                    print("BOTTOM2TOP: final chunk_count", chunk_count)
+                    res_str = self.format_res(wasd_res)
+
+                    result = {"chunks":res_str}
+                    if kwargs.get("debug", True):
+                        supplement_info = self._build_supplement_info(wasd_res, entities, wasd_res, list(wasd_res.keys()), chunk_count, chunk_counts_history)
+                        result.update(supplement_info)
+                    return result
+                else:
+                    candidate_chunks = prev_wasd_res
+                    res_ids = self.entityaware_filter(candidate_chunks, entities)
+                    chunk_count = self._count_chunks(res_ids)
+                    res_str = self.format_res(res_ids)
+                    result = {"chunks":res_str}
+                    result["chunk_counts_history"] = chunk_counts_history
+                    if kwargs.get("debug", True):
+                        supplement_info = self._build_supplement_info(res_ids, entities, res_ids, list(res_ids.keys()), chunk_count, chunk_counts_history)
+                        result.update(supplement_info)
+                    return result  
+
+
+        elif ablation_type == "wo_GF&EAR":
+            entities = naive_extract_graph(query.split("\n")[0], self.nlp)["nouns"]
+            shortest_path_k = kwargs.get("shortest_path_k", 4)
+            min_count = kwargs.get("min_count", 2)
+            if len(entities) == 0:
+                chunk_ids = self.dense_retrieval(query, kwargs.get("max_chunk_setting", 25))
+                result = {"chunks":self.format_res(chunk_ids)}
+                if kwargs.get("debug", True):
+                    supplement_info = self._build_supplement_info(chunk_ids, entities, chunk_ids, list(chunk_ids.keys()), len(chunk_ids), [])
+                    result.update(supplement_info)
+                    result["is_global_retrieval"] = True
+                return result
+            wasd_res = self.wasd_ablation(entities, shortest_path_k, min_count, ablation_type)
+            chunk_count = self._count_chunks(wasd_res)
+            chunk_counts_history = []
+            chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
+
+            if chunk_count == 0:
+                query_embed = self.embedder.encode(query).reshape(1, -1) # need (1, -1) for faiss.
+                _, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = 25 *2)
+                # the normal faiss index return the (1, k) shape. squeeze it to (k,).
+                condidate_chunks_indexs = condidate_chunks_indexs[0]
+                condidate_chunk_ids = [self.collapse_tree_ids[i] for i in condidate_chunks_indexs]
+                filtered_chunk_ids = self._faiss_entity_filter(condidate_chunk_ids, entities) 
+                # return the entity_entityB: [chunk_id1, chunk_id2, ...]
+                res_str = self.format_res(filtered_chunk_ids)
+
+                result = {"chunks":res_str}
+                if kwargs.get("debug", True):
+                    supplement_info = self._build_supplement_info(filtered_chunk_ids, entities, filtered_chunk_ids, list(filtered_chunk_ids.keys()), chunk_count, chunk_counts_history)
+                    result.update(supplement_info)
+                return result
+            
+            else:
+                candidate_chunks = wasd_res
+                all_chunks = []
+                for key in candidate_chunks:
+                    all_chunks.extend(candidate_chunks[key])
+                if len(all_chunks) > 25:
+                    selected_chunks = random.sample(all_chunks, 25)
+                else:
+                    selected_chunks = all_chunks
+                
+                res_ids = {}
+                for chunk in selected_chunks:
+                    # 找到chunk所属的key
+                    for key in candidate_chunks:
+                        if chunk in candidate_chunks[key]:
+                            if key not in res_ids:
+                                res_ids[key] = []
+                            res_ids[key].append(chunk)
+                            break
+                chunk_count = self._count_chunks(res_ids)
+                res_str = self.format_res(res_ids)
+                result = {"chunks":res_str}
+                result["chunk_counts_history"] = chunk_counts_history
+                if kwargs.get("debug", True):
+                    supplement_info = self._build_supplement_info(res_ids, entities, res_ids, list(res_ids.keys()), chunk_count, chunk_counts_history)
+                    result.update(supplement_info)
+                return result
+
+
+        else:
+            raise ValueError("ablation_type is not valid.")
+
+
+
     def query(self, query, **kwargs):
+        if kwargs.get("ablation_study", False):
+            # for ablation study.
+            return self._ablation_query(query, **kwargs)
+
         # step 1: extract the Entities from the query.
-        entities = naive_extract_graph(query.split("\n")[0], self.nlp)
+        entities = naive_extract_graph(query.split("\n")[0], self.nlp)#
         entities = entities["nouns"]
 
         # step 2.0: set up the parameters.
@@ -494,10 +895,9 @@ class Retriever:
             chunk_ids = self.dense_retrieval(query, kwargs.get("max_chunk_setting", 25))
             result = {"chunks":self.format_res(chunk_ids)}
             if kwargs.get("debug", True):
-                result["chunk_ids"] = chunk_ids
-                result["entities"] = entities
-                result["len_chunks"] = len(chunk_ids)
-                result["chunk_counts_history"] = []
+                supplement_info = self._build_supplement_info(chunk_ids, entities, chunk_ids, list(chunk_ids.keys()), len(chunk_ids), [])
+                result.update(supplement_info)
+                result["retrieval_type"] = "Global Search"
             return result
 
         # step 2.2: initialize the chunks by wasd method.
@@ -513,7 +913,7 @@ class Retriever:
         chunk_counts_history.append((shortest_path_k, min_count, chunk_count))
 
         # if the chunk count is 0, dense retrieval + entity filter.
-        if chunk_count == 0:
+        if chunk_count == 0:          
             query_embed = self.embedder.encode(query).reshape(1, -1) # need (1, -1) for faiss.
             _, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = 25 *2)
             # the normal faiss index return the (1, k) shape. squeeze it to (k,).
@@ -525,24 +925,17 @@ class Retriever:
 
             result = {"chunks":res_str}
             if kwargs.get("debug", True):
-                result["chunk_ids"] = filtered_chunk_ids
-                result["entities"] = entities
-                result["neighbor_nodes"] = filtered_chunk_ids
-                result["keys"] = list(filtered_chunk_ids.keys())
-                result["len_chunks"] = chunk_count
-                result["chunk_counts_history"] = chunk_counts_history
+                supplement_info = self._build_supplement_info(filtered_chunk_ids, entities, filtered_chunk_ids, list(filtered_chunk_ids.keys()), 25, chunk_counts_history)
+                result.update(supplement_info)
+                result["retrieval_type"] = "Occurrence Rerank"
             return result
-        flag = 0
+        
+
         while chunk_count > kwargs.get("max_chunk_setting", 25):
             prev_wasd_res = copy.deepcopy(wasd_res)
             # if the chunk count is larger than the max chunk setting
             # then change the setting, increase the min count and decrease the shortest path k.
-            if flag == 0:
-                shortest_path_k -= 1
-                flag = 1
-            else:
-                min_count += 1
-                flag = 0
+            shortest_path_k -= 1
             # update the result with new restrictions.
             wasd_res = self.wasd_step(entities, shortest_path_k, min_count)
             chunk_count = self._count_chunks(wasd_res)
@@ -557,30 +950,34 @@ class Retriever:
 
             result = {"chunks":res_str}
             if kwargs.get("debug", True):
-                result["chunk_ids"] = wasd_res
-                result["entities"] = entities
-                result["neighbor_nodes"] = wasd_res
-                result["keys"] = list(wasd_res.keys())
-                result["len_chunks"] = chunk_count
-                result["chunk_counts_history"] = chunk_counts_history
+                supplement_info = self._build_supplement_info(wasd_res, entities, wasd_res, list(wasd_res.keys()), chunk_count, chunk_counts_history)
+                result.update(supplement_info)
+                result["retrieval_type"] = f"Local, Loop for {len(chunk_counts_history)-1} times"
             return result
         else:
             # the previous wasd result is not empty, so we can use it as candidate chunks.
             candidate_chunks = prev_wasd_res
-            res_ids = self.entity_filter(candidate_chunks, entities)
+            res_ids = self.entityaware_filter(candidate_chunks, entities)
             chunk_count = self._count_chunks(res_ids)
             res_str = self.format_res(res_ids)
             result = {"chunks":res_str}
             result["chunk_counts_history"] = chunk_counts_history
             if kwargs.get("debug", True):
-                result["chunk_ids"] = res_ids
-                result["entities"] = entities
-                result["neighbor_nodes"] = res_ids
-                result["keys"] = list(res_ids.keys())
-                result["len_chunks"] = chunk_count
-                result["chunk_counts_history"] = chunk_counts_history
+                supplement_info = self._build_supplement_info(res_ids, entities, res_ids, list(res_ids.keys()), 25, chunk_counts_history)
+                result.update(supplement_info)
+                result["retrieval_type"] = f"EntityAware Filter, Loop for {len(chunk_counts_history)-1} times"
             return result        
 
+    def _build_supplement_info(self, chunk_ids, entities, neighbor_nodes, keys, len_chunks, chunk_counts_history):
+        return {
+            "chunk_ids": chunk_ids,
+            "entities": entities,
+            "neighbor_nodes": neighbor_nodes,
+            "keys": keys,
+            "len_chunks": len_chunks,
+            "chunk_counts_history": chunk_counts_history
+        }
+    
 
 if __name__ == "__main__":
     import json
