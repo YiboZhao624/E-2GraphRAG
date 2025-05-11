@@ -11,7 +11,7 @@ def clean_cuda_memory(device_id):
             torch.cuda.empty_cache()
 
 def build_tree_task(args):
-    llm_path, llm_device, text, cache_folder, tokenizer_name, length, overlap, merge_num, torch_dtype = args
+    llm_path, llm_device, text, cache_folder, tokenizer_name, length, overlap, merge_num, torch_dtype, language = args
     if os.path.exists(os.path.join(cache_folder, "tree.json")):
         return load_cache_summary(os.path.join(cache_folder, "tree.json")), -1
     try:
@@ -29,7 +29,7 @@ def build_tree_task(args):
         )
         
         # Process
-        result, time_cost = build_tree(text, llm_pipeline, cache_folder, tokenizer, length, overlap, merge_num)
+        result, time_cost = build_tree(text, llm_pipeline, cache_folder, tokenizer, length, overlap, merge_num, language)
         print(f"build tree task result type: {type(result)}")
         print(f"build tree task time cost: {time_cost}, -1 means load from cache.")
         return result, time_cost
@@ -47,12 +47,12 @@ def build_tree_task(args):
         clean_cuda_memory(device_id)
 
 def extract_graph_task(args):
-    text, cache_folder = args
+    text, cache_folder, language = args
     if os.path.exists(os.path.join(cache_folder, "graph.json")):
         return load_cache(cache_folder), -1
     try:
         # Load NLP model in subprocess
-        nlp = load_nlp()
+        nlp = load_nlp(language)
         (result, index, count), time_cost = extract_graph(text, cache_folder, nlp)
         print(f"extract graph task result type: {type(result)}")
         print(f"extract graph task time cost: {time_cost}, -1 means load from cache.")
