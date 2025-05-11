@@ -33,24 +33,30 @@ def load_cache_summary(cache_path:str)->List[str]:
     with open(cache_path, "r") as f:
         return json.load(f)
 
-def summarize_leaf(text:str, llm:pipeline,)->List[str]:
+def summarize_leaf(text:str, llm:pipeline, language:str)->List[str]:
     '''
     Summarize the text into chunks.
     '''
-    prompt = Prompts["summarize_details"].format(content=text)
+    if language == "en":
+        prompt = Prompts["summarize_details"].format(content=text)
+    else:
+        prompt = Prompts["summarize_details_zh"].format(content=text)
     res = llm(prompt)[0]["generated_text"][len(prompt):]
     return res
 
-def summarize_summary(text:str, llm:pipeline,)->List[str]:
+def summarize_summary(text:str, llm:pipeline, language:str)->List[str]:
     '''
     Summarize the summary into chunks.
     '''
-    prompt = Prompts["summarize_summary"].format(summary=text)
+    if language == "en":
+        prompt = Prompts["summarize_summary"].format(summary=text)
+    else:
+        prompt = Prompts["summarize_summary_zh"].format(summary=text)
     res = llm(prompt)[0]["generated_text"][len(prompt):]
     return res
 
 def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
-               tokenizer:AutoTokenizer, length:int, overlap:int, merge_num:int):
+               tokenizer:AutoTokenizer, length:int, overlap:int, merge_num:int, language:str):
     '''
     Build the tree from the text.
     '''
@@ -73,7 +79,7 @@ def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
     summary_id_count = 0
     for i in range(0, len(text_chunks), merge_num):
         merged_chunks = sequential_merge(text_chunks[i:i+merge_num], tokenizer, overlap)
-        summary = summarize_leaf(merged_chunks, llm)
+        summary = summarize_leaf(merged_chunks, llm, language)
         cache["summary_0_{}".format(summary_id_count)] = {
             "text": summary,
             "children": [f"leaf_{j}" for j in range(i, i+merge_num)],
@@ -93,7 +99,7 @@ def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
             # for summary, there is no overlap.
             merged_chunks = sequential_merge(to_summarize[i:i+merge_num], tokenizer, 0)
             # for summary, using different prompt.
-            summary = summarize_summary(merged_chunks, llm)
+            summary = summarize_summary(merged_chunks, llm, language)
             # key format: summary_{level}_{i}
             cache["summary_{}_{}".format(level, new_summary_id_count)] = {
                 "text": summary,
@@ -128,7 +134,7 @@ def test():
     assert merged == text, "Test Sequential Merge Error. Expected: {}, Actual: {}".format(text, merged)
     print("Test Sequential Merge Passed.")
     llm = pipeline("text-generation", model=Qwen2_5_7B_Instruct, tokenizer=tokenizer, device="cuda:6", max_new_tokens = 1200)
-    summary = summarize_leaf(text, llm)
+    summary = summarize_leaf(text, llm, "en")
     print(summary)
     print(type(summary))
 
