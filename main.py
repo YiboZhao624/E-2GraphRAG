@@ -5,7 +5,7 @@ from utils import Timer, timed, sequential_split, RL_score, EM_score
 from dataloader import NovelQALoader, NarrativeQALoader, test_loader
 import yaml
 import torch
-from transformers import pipeline, AutoTokenizer, AutoModel
+from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
 from query import Retriever
 from prompt_dict import Prompts
 import os
@@ -21,20 +21,6 @@ from datetime import datetime
 from utils import load_dataset
 
 def parse_args():
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("--dataset", type=str, required=True)
-    # parser.add_argument("--llm", type=str, required=True)
-    # parser.add_argument("--cache_path", type=str, required=True)
-    # parser.add_argument("--tokenizer", type=str, required=True)
-    # parser.add_argument("--length", type=int, default=1200)
-    # parser.add_argument("--overlap", type=int, default=100)
-    # parser.add_argument("--merge_num", type=int, default=5)
-    # parser.add_argument("--answer_path", type=str, default="answer.json")
-    # parser.add_argument("--llm_device", type=str, default="cuda:4")
-    # parser.add_argument("--emb_device", type=str, default="cuda:5")
-    # parser.add_argument("--batch_size", type=int, default=32)
-    # parser.add_argument("--dataset_path", type=str, default="NovelQA")
-    # args = parser.parse_args()
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="config.yaml")
     args = parser.parse_args()
@@ -52,7 +38,6 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
             with mp.Pool(processes=2) as pool:
                 print("Starting parallel processing...")
                 
-                # 修改 build_args 添加 torch_dtype 参数
                 build_args = (
                     configs["llm"]["llm_path"],
                     configs["llm"]["llm_device"],
@@ -62,10 +47,11 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
                     length,
                     overlap,
                     merge_num,
-                    torch.float16  # 添加 torch_dtype 参数
+                    torch.float16,
+                    configs.get("language", "en")
                 )
                 
-                extract_args = (text, cache_folder)
+                extract_args = (text, cache_folder, configs.get("language", "en"))
                 
                 print("Launching build_tree_task...")
                 build_future = pool.apply_async(build_tree_task, (build_args,))
@@ -77,21 +63,21 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
                 try:
                     build_res, build_time_cost = build_future.get()
                 except Exception as e:
-                    print(f"构建树失败: {e}")
-                    print(f"错误类型: {type(e).__name__}")
-                    print(f"详细错误信息: {e.args}")
+                    print(f"Tree building failed: {e}")
+                    print(f"Error type: {type(e).__name__}")
+                    print(f"Detailed error information: {e.args}")
                     import traceback
-                    print(f"错误堆栈:\n{traceback.format_exc()}")
+                    print(f"Error stack:\n{traceback.format_exc()}")
                     raise e
         
                 try:
                     extract_res, extract_time_cost = extract_future.get()
                 except Exception as e:
-                    print(f"提取图失败: {e}")
-                    print(f"错误类型: {type(e).__name__}")
-                    print(f"详细错误信息: {e.args}")
+                    print(f"Graph extraction failed: {e}")
+                    print(f"Error type: {type(e).__name__}")
+                    print(f"Detailed error information: {e.args}")
                     import traceback
-                    print(f"错误堆栈:\n{traceback.format_exc()}")
+                    print(f"Error stack:\n{traceback.format_exc()}")
                     raise e
 
     except Exception as e:
@@ -102,7 +88,6 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
     
     finally:
         clean_cuda_memory(device_id)
-        # 强制垃圾回收
         gc.collect()
 
     print("-" * 15)
@@ -111,7 +96,6 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
     print(f"extract time: {extract_time_cost} seconds")
     print("-" * 15)
     
-    # 保存时间信息
     if extract_time_cost != -1 and build_time_cost != -1:
         with open(os.path.join(cache_folder, "time_cost.txt"), "w") as f:
             f.write(f"total time: ||{timer['total']}|| seconds\n")
@@ -139,7 +123,11 @@ def main():
                     continue
 
                 text = data_piece["book"]
-                text = sequential_split(text, tokenizer, configs["cluster"]["length"], configs["cluster"]["overlap"])
+                if configs.get("split_method", "sequential") == "sequential":
+                    text = sequential_split(text, tokenizer, configs["cluster"]["length"], configs["cluster"]["overlap"])
+                elif configs.get("split_method", "sequential") == "nn":
+                    print("split_method: nn")
+                    text = text.split("\n\n")
                 qa = data_piece["qa"]
                 
                 piece_name = dataset.available_ids[i]
@@ -160,17 +148,17 @@ def main():
                         from transformers import Qwen2ForCausalLM
                         llm = Qwen2ForCausalLM.from_pretrained(
                             configs["llm"]["llm_path"],
-                            torch_dtype=torch.float16,  # 使用 float16
+                            torch_dtype=torch.bfloat16,
                             low_cpu_mem_usage=True
                         )
                     else:
-                        llm = AutoModel.from_pretrained(
+                        llm = AutoModelForCausalLM.from_pretrained(
                             configs["llm"]["llm_path"],
-                            torch_dtype=torch.float16  # 使用 float16
+                            torch_dtype=torch.bfloat16
                         )
                     llm.eval()
                     llm.to(configs["llm"]["llm_device"])
-                elif configs["dataset"]["dataset_name"] == "NarrativeQA" or configs["dataset"]["dataset_name"] == "InfiniteQALoader":
+                elif configs["dataset"]["dataset_name"] == "NarrativeQA" or configs["dataset"]["dataset_name"] == "InfiniteQALoader" or configs["dataset"]["dataset_name"] == "test_temp":
                     llm = pipeline("text-generation", model=configs["llm"]["llm_path"], tokenizer=tokenizer, device=configs["llm"]["llm_device"])
                 else:
                     raise ValueError("Invalid dataset")
@@ -232,11 +220,15 @@ def main():
                             ).detach().cpu().numpy()
                             output_text = ["A", "B", "C", "D"][np.argmax(probs)]
 
-                        elif configs["dataset"]["dataset_name"] == "NarrativeQA" or configs["dataset"]["dataset_name"] == "InfiniteQALoader":
-                            input_text = Prompts["QA_prompt_answer"].format(question = question,
+                        elif configs["dataset"]["dataset_name"] == "NarrativeQA" or configs["dataset"]["dataset_name"] == "InfiniteQALoader" or configs["dataset"]["dataset_name"] == "test_temp":
+                            if configs.get("language", "en") == "zh":
+                                input_text = Prompts["QA_prompt_answer_zh"].format(question = question,
+                                                        evidence = model_supplement)
+                            else:
+                                input_text = Prompts["QA_prompt_answer"].format(question = question,
                                                         evidence = model_supplement)
                             print("input_text: ", len(input_text))
-                            output = llm(input_text, max_new_tokens = 20)
+                            output = llm(input_text, max_new_tokens = 300)
                             output_text = output[0]["generated_text"]
                             output_text = output_text[len(input_text):]
                             print("output_text: ", output_text)
