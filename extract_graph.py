@@ -13,13 +13,21 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 import time
 
-def load_nlp():
-    try:
-        nlp = spacy.load("en_core_web_lg")
-    except:
-        print("Downloading spacy model...")
-        spacy.cli.download("en_core_web_lg")
-        nlp = spacy.load("en_core_web_lg")
+def load_nlp(language:str="en"):
+    if language == "en":
+        try:
+            nlp = spacy.load("en_core_web_lg")
+        except:
+            print("Downloading spacy model...")
+            spacy.cli.download("en_core_web_lg")
+            nlp = spacy.load("en_core_web_lg")
+    elif language == "zh":
+        try:
+            nlp = spacy.load("en_core_web_lg")
+        except:
+            print("Downloading spacy model...")
+            spacy.cli.download("en_core_web_lg")
+            nlp = spacy.load("en_core_web_lg")
     return nlp
         
 def naive_extract_graph(text:str, nlp:spacy.Language):
