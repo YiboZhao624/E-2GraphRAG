@@ -1,0 +1,31 @@
+dataset:
+  dataset_name: InfiniteChoice                                  # or InfiniteQALoader, NovelQA.
+  dataset_path: ./InfiniteBench/data/longbook_choice_eng.jsonl  # path to your dataset path.
+
+llm:
+  llm_name: Qwen2.5-7B-Instruct
+  llm_path: path/to/your/llm/model  # path to your llm model.
+  llm_device: cuda                  # device to run the llm.
+
+paths:
+  log_path: ./log             # path to save the log.
+  answer_path: ./answer/test  # path to save the answer. no need to identify the dataset, they will be automatically saved in corresponding folder.
+  cache_path: ./cache/test    # path to save the cache.
+
+cluster:
+  length: 1200  # length of each chunk.
+  overlap: 100  # overlap of each chunk.
+  merge_num: 5  # number of chunks to merge.
+
+resume:
+  resumeIndex: 0  # index of the resume.
+
+retriever:
+  kwargs:
+    device: cuda                      # device to run the retriever.
+    shortest_path_k: 4                # number of shortest path to retrieve. 
+    debug: True                       # whether to print the debug information.
+    merge_num: 5                      # number of chunks to merge.
+    overlap: 100                      # overlap of each chunk.
+    tokenizer: path/to/your/tokenizer # path to your tokenizer.
+    max_chunk_setting: 25             # max number of chunks to retrieve.
