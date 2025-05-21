@@ -1,0 +1,15 @@
+datasets==3.2.0
+faiss==1.8.0
+faiss_cpu==1.9.0.post1
+matplotlib==3.10.3
+networkx==3.2.1
+numpy==2.2.6
+PyYAML==6.0.2
+PyYAML==6.0.2
+rouge==1.0.1
+scikit_learn==1.6.1
+sentence_transformers==3.3.1
+spacy==3.8.4
+torch==2.5.1
+tqdm==4.67.1
+transformers==4.48.0
