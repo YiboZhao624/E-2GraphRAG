@@ -1,4 +1,3 @@
-from GlobalConfig import *
 from typing import List
 import json
 import os
