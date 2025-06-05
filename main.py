@@ -1,8 +1,6 @@
 import multiprocessing as mp
-from build_tree import build_tree
-from extract_graph import extract_graph, load_nlp
-from utils import Timer, timed, sequential_split, RL_score, EM_score
-from dataloader import NovelQALoader, NarrativeQALoader, test_loader
+from extract_graph import load_nlp
+from utils import Timer, sequential_split
 import yaml
 import torch
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
@@ -158,7 +156,7 @@ def main():
                         )
                     llm.eval()
                     llm.to(configs["llm"]["llm_device"])
-                elif configs["dataset"]["dataset_name"] == "NarrativeQA" or configs["dataset"]["dataset_name"] == "InfiniteQALoader" or configs["dataset"]["dataset_name"] == "test_temp":
+                elif configs["dataset"]["dataset_name"] == "InfiniteQALoader" :
                     llm = pipeline("text-generation", model=configs["llm"]["llm_path"], tokenizer=tokenizer, device=configs["llm"]["llm_device"])
                 else:
                     raise ValueError("Invalid dataset")
@@ -195,7 +193,7 @@ def main():
                             print(traceback.format_exc())
                             raise e
 
-                        if configs["dataset"]["dataset_name"] == "NovelQA" or configs["dataset"]["dataset_name"] == "test" or configs["dataset"]["dataset_name"] == "InfiniteChoice":
+                        if configs["dataset"]["dataset_name"] == "NovelQA" or configs["dataset"]["dataset_name"] == "InfiniteChoice":
                             input_text = Prompts["QA_prompt_options"].format(question = question,evidence = evidences)
                             try:
                                 inputs = tokenizer(input_text, return_tensors="pt").to(configs["llm"]["llm_device"])
@@ -220,7 +218,7 @@ def main():
                             ).detach().cpu().numpy()
                             output_text = ["A", "B", "C", "D"][np.argmax(probs)]
 
-                        elif configs["dataset"]["dataset_name"] == "NarrativeQA" or configs["dataset"]["dataset_name"] == "InfiniteQALoader" or configs["dataset"]["dataset_name"] == "test_temp":
+                        elif configs["dataset"]["dataset_name"] == "InfiniteQALoader":
                             if configs.get("language", "en") == "zh":
                                 input_text = Prompts["QA_prompt_answer_zh"].format(question = question,
                                                         evidence = model_supplement)
