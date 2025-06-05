@@ -1,15 +1,10 @@
 import os
 from typing import List
 import json
-import pickle
 import spacy
 import networkx as nx
-import torch
 from itertools import combinations
 from typing import List, Tuple
-from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
-from sklearn.cluster import DBSCAN
 import time
 
 def load_nlp(language:str="en"):
@@ -43,7 +38,6 @@ def naive_extract_graph(text:str, nlp:spacy.Language):
     double_nouns = {}
     appearance_count = {}
 
-    # TODO: 一个chunk里的连通还是一个句子里连通？
     for sent in doc.sents:
         sentence_terms = []
 
@@ -122,112 +116,6 @@ def build_graph(triplets: List[Tuple[str, str, int]]) -> nx.Graph:
     
     return G
 
-def get_shortest_path(G:nx.Graph, start:str, end:str) -> List[str]:
-    '''
-    get the shortest path between start and end.
-    '''
-    try:
-        return nx.shortest_path(G, start, end, weight='weight')
-    except nx.NodeNotFound:
-        print(f"NodeNotFound: {start} or {end}")
-        return []
-
-def multi_shortest_path(G:nx.Graph, entities:List[str]) -> List[List[str]]:
-    '''
-    get the shortest path between all entities.
-    '''
-    paths = []
-    for i, j in combinations(entities, 2):
-        path = get_shortest_path(G, i, j)
-        paths.append(path)
-    return paths
-
-# not used.
-def merge_entities(nouns: List[str], eps: float = 0.15, min_samples: int = 2, debug: bool = True) -> dict:
-    '''
-    merge the entities into the graph using sklearn clustering
-    Args:
-        nouns: List of noun entities
-        eps: similarity threshold
-        min_samples: minimum samples for clustering
-        debug: whether to print debug information
-    '''
-    import transformers
-    model = transformers.AutoModel.from_pretrained("bert-base-cased").eval()
-    tokenizer = transformers.AutoTokenizer.from_pretrained("bert-base-cased")
-    nodes = list(set(nouns))
-    
-    # 获取词向量
-    node_embeddings = []
-    batch_size = 32
-    for i in range(0, len(nodes), batch_size):
-        batch_nodes = nodes[i:i + batch_size]
-        tokenized = tokenizer(batch_nodes, padding=True, truncation=True, return_tensors="pt")
-        with torch.no_grad():
-            outputs = model(**tokenized)
-        batch_embeddings = outputs.last_hidden_state.mean(dim=1)
-        node_embeddings.extend(batch_embeddings.tolist())
-    
-    # 转换为numpy数组
-    node_embeddings = np.array(node_embeddings)
-    
-    # 计算并打印相似度矩阵
-    if debug:
-        similarity_matrix = cosine_similarity(node_embeddings)
-        print("\n词语相似度矩阵:")
-        # 打印表头
-        print(f"{'':15}", end='')
-        for node in nodes:
-            print(f"{node:>10}", end='')
-        print("\n" + "-" * (15 + 10 * len(nodes)))
-        
-        # 打印相似度值
-        for i, node1 in enumerate(nodes):
-            print(f"{node1:15}", end='')
-            for j, node2 in enumerate(nodes):
-                sim = similarity_matrix[i][j]
-                # 高亮显示高相似度对
-                if i != j and sim > 1 - eps:
-                    print(f"\033[92m{sim:10.3f}\033[0m", end='')  # 绿色显示
-                else:
-                    print(f"{sim:10.3f}", end='')
-            print()
-        
-        # 打印高相似度对
-        print("\n相似度高于阈值的词对 (sim > {:.2f}):".format(1- eps))
-        for i in range(len(nodes)):
-            for j in range(i+1, len(nodes)):
-                sim = similarity_matrix[i][j]
-                if sim > 1 - eps:
-                    print(f"{nodes[i]:15} - {nodes[j]:15} = {sim:.3f}")
-    
-    # 原有的聚类逻辑
-    clustering = DBSCAN(eps=eps, min_samples=min_samples, metric='cosine')
-    cluster_labels = clustering.fit_predict(node_embeddings)
-    
-    # 打印聚类结果
-    if debug:
-        print("\n聚类结果:")
-        clusters = {}
-        for node, label in zip(nodes, cluster_labels):
-            if label not in clusters:
-                clusters[label] = []
-            clusters[label].append(node)
-        for label, members in clusters.items():
-            print(f"Cluster {label}: {members}")
-    
-    # 构建映射
-    node_name_mapping = {}
-    for node, label in zip(nodes, cluster_labels):
-        if label == -1:
-            node_name_mapping[node] = node
-        else:
-            cluster_members = [n for n, l in zip(nodes, cluster_labels) if l == label]
-            rep = max(cluster_members, key=len)
-            node_name_mapping[node] = rep
-            
-    return node_name_mapping
-
 def load_cache(cache_path:str):
     graph_file_path = os.path.join(cache_path, "graph.json")
     index_file_path = os.path.join(cache_path, "index.json")
@@ -293,18 +181,6 @@ def extract_graph(text:List[str], cache_folder:str, nlp:spacy.Language, use_cach
         return (G, index, appearance_count), extract_end_time - extract_start_time
 
 if __name__ == "__main__":
-    # nouns = [
-    #     "desk","chair","table","book","computer","mouse",
-    #     "keyboard","screen","printer","laptop","notebook","PC"
-    # ]
-    # print("原始词语:", nouns)
-    # result = merge_entities(nouns, eps=0.08, min_samples=2, debug=True)
-    # print("\n最终合并结果:")
-    # for orig, merged in sorted(result.items()):
-    #     if orig != merged:
-    #         print(f"{orig} -> {merged}")
-
-    # 测试用例
     edges = [
         ('a', 'b', 1),
         ('a', 'b', 3),
@@ -316,26 +192,3 @@ if __name__ == "__main__":
     # 打印所有边的权重
     for u, v, w in G.edges(data='weight'):
         print(f"Edge ({u}, {v}): weight = {w}")  # 应该输出: Edge (a, b): weight = 6
-
-
-
-
-
-
-def coref_extract_graph(text:str):
-    try:
-        nlp = spacy.load("en_core_web_lg")
-    except:
-        print("Downloading spacy model...")
-        spacy.cli.download("en_core_web_lg")
-        nlp = spacy.load("en_core_web_lg")
-    
-    nlp.add_pipe("coreferee")
-    doc = nlp(text)
-    
-    # resolve the coreference.
-    chains = doc._.coref_chains
-
-    # TODO: if it is necessary?
-    pass
-
