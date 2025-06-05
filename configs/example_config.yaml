@@ -1,6 +1,8 @@
 dataset:
   dataset_name: InfiniteChoice                                  # or InfiniteQALoader, NovelQA.
-  dataset_path: ./InfiniteBench/data/longbook_choice_eng.jsonl  # path to your dataset path.
+  dataset_path: ./data/InfiniteBench/longbook_choice_eng.jsonl  # path to your dataset path. 
+  # or NovelQA: ./data/NovelQA
+  # or InfiniteQALoader: ./data/InfiniteBench/longbook_qa_eng.jsonl
 
 llm:
   llm_name: Qwen2.5-7B-Instruct
