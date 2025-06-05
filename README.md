@@ -2,8 +2,6 @@
 
 E²GraphRAG is a lightweight and modular framework designed to enhance both **efficiency** and **effectiveness** in Graph-based Retrieval-Augmented Generation (RAG). It streamlines the pipeline from document parsing to answer generation via structured graph reasoning.
 
----
-
 ## 📁 Project Structure
 
 ```
@@ -21,21 +19,16 @@ E²GraphRAG is a lightweight and modular framework designed to enhance both **ef
 └── utils.py
 ```
 
-
----
-
 ## 📦 Datasets
 
 We use data from:
 
-- [📚 NovelQA](https://huggingface.co/datasets/NovelQA/NovelQA)  
+- [📚 NovelQA](https://huggingface.co/datasets/NovelQA/NovelQA)
   *Access via request to the original authors.*
-- [🔁 InfiniteBench](https://github.com/OpenBMB/InfiniteBench)  
+- [🔁 InfiniteBench](https://github.com/OpenBMB/InfiniteBench)
   *Fully open-source and publicly available.*
 
 > **Note:** After obtaining the datasets, specify the data path when initializing the `Dataloader` class.
-
----
 
 ## 🚀 Getting Started
 
@@ -68,7 +61,7 @@ Step-by-step:
 
 ## 📬 Contact & Citation
 
-If you use this code or find it helpful in your research, please consider citing our work. For questions or dataset access (NovelQA), feel free to contact the original authors.
+If you use this code or find it helpful in your research, please consider citing our work. For questions or dataset access (NovelQA), please contact the original authors.
 
 ```
 @misc{zhao2025e2graphragstreamlininggraphbasedrag,
