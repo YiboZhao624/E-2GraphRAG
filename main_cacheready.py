@@ -1,7 +1,6 @@
 import multiprocessing as mp
-from build_tree import build_tree
-from extract_graph import extract_graph, load_nlp
-from utils import Timer, timed, sequential_split, RL_score, EM_score, load_dataset, load_tree_graph
+from extract_graph import load_nlp
+from utils import sequential_split, load_dataset, load_tree_graph
 import yaml
 import torch
 from transformers import pipeline, AutoTokenizer, AutoModel
@@ -14,7 +13,6 @@ import traceback
 import sys
 import argparse
 import time
-from process_utils import clean_cuda_memory
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -55,7 +53,7 @@ def main():
             )
         llm.eval()
         llm.to(configs["llm"]["llm_device"])
-    elif configs["dataset"]["dataset_name"] == "NarrativeQA" or configs["dataset"]["dataset_name"] == "InfiniteQALoader":
+    elif configs["dataset"]["dataset_name"] == "InfiniteQALoader":
         llm = pipeline("text-generation", model=configs["llm"]["llm_path"], tokenizer=tokenizer, device=configs["llm"]["llm_device"])
     else:
         raise ValueError("Invalid dataset")
@@ -142,7 +140,7 @@ def main():
                     ).detach().cpu().numpy()
                     output_text = ["A", "B", "C", "D"][np.argmax(probs)]
 
-                elif configs["dataset"]["dataset_name"] == "NarrativeQA" or configs["dataset"]["dataset_name"] == "InfiniteQALoader":
+                elif configs["dataset"]["dataset_name"] == "InfiniteQALoader":
                     input_text = Prompts["QA_prompt_answer"].format(question = question,
                                                 evidence = model_supplement)
                     output = llm(input_text)
