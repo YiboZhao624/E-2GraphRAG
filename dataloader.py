@@ -69,45 +69,6 @@ class NovelQALoader:
     def __len__(self):
         return len(self.dataset)
 
-
-
-class NarrativeQALoader:
-    '''
-    data will be returned as a dictionary with :
-    {
-        "book": str,
-        "qa": list of dictionaries with keys:
-            "id": str,
-            "question": str,
-            "answer": str
-    }
-    question is well formatted.
-    '''
-    def __init__(self):
-        origin_dataset = load_dataset("narrativeqa")["test"]
-        self.dataset = self._format_dataset(origin_dataset)
-        self.available_ids = list(self.dataset.keys())
-
-    def _format_dataset(self, dataset):
-        formatted_dataset = {}
-        for item in tqdm(dataset, desc = "Formatting Dataset"):
-            book_id = item["document"]["id"]
-            if book_id not in formatted_dataset:
-                formatted_dataset[book_id] = {}
-                formatted_dataset[book_id]["book"] = item["document"]["text"]
-                formatted_dataset[book_id]["qa"] = []
-            formatted_dataset[book_id]["qa"].append({
-                "question": item["question"]["text"],
-                "answer": [item["answers"][i]["text"] for i in range(len(item["answers"]))]
-            })
-        return formatted_dataset
-    
-    def __getitem__(self, index):
-        return self.dataset[self.available_ids[index]]
-
-    def __len__(self):
-        return len(self.available_ids)
-
 class InfiniteQALoader:
     def __init__(self, path = "./InfiniteBench/data/longbook_qa_eng.jsonl"):
         self.dataset, self.available_ids = self._initialize_dataset(path)
@@ -198,104 +159,16 @@ class InfiniteChoiceLoader:
         return len(self.available_ids)
 
 
-class test_loader:
-    '''
-    data will be returned as a dictionary with :
-    {
-        "book": str,
-        "qa": list of dictionaries with keys:
-            "id": str,
-            "question": str,
-            "answer": str
-    }
-    question is well formatted.
-    '''
-    def __init__(self, path):
-        self.parent_folder = path
-        self.qapath = os.path.join(path, "Data")
-        self.docpath = os.path.join(path, "Books")
-        self.dataset = self._initialize_dataset()
-        self.available_ids = list(self.dataset.keys())
-
-    def _initialize_dataset(self):
-        dataset = {0:{}}
-        doc_path = os.path.join(self.docpath, "PublicDomain","B00.txt")
-        qa_path = os.path.join(self.qapath, "PublicDomain", "B00.json")
-        with open(doc_path, "r") as infile:
-            dataset[0]["book"] = infile.read()
-        with open(qa_path, "r") as infile:
-            dataset[0]["qa"] = json.loads(infile.read())
-        
-        return dataset
-    
-    def _format_qa(self, qa_dict):
-        formatted_qa = []
-        for qa_id, qa in qa_dict.items():
-            question = qa["Question"]
-            options = qa["Options"]
-            answer = qa["Gold"]
-            question_text = question + "\n"
-            for option, text in options.items():
-                question_text += option + ". " + text
-                if option != "D":
-                    question_text += "\n"
-            formatted_qa.append({
-                "id": qa_id,
-                "question": question_text,
-                "answer": answer
-            })
-        return formatted_qa
-
-    def __getitem__(self, index):
-        to_return = {}
-        to_return["book"] = self.dataset[index]["book"]
-        to_return["qa"] = self._format_qa(self.dataset[index]["qa"])
-        return to_return
-
-    def __len__(self):
-        return 1
-
-class temp_loader:
-    def __init__(self, path):
-        self.dataset = self._initialize_dataset(path)
-        self.available_ids = [0]
-        
-    def _initialize_dataset(self, path):
-        with open(path, "r") as infile:
-            document = infile.read()
-        to_return = [{
-            "book": document,
-            "qa": []
-        }]
-        return to_return
-        
-    def __getitem__(self, index):
-        return self.dataset[index]
-
-    def __len__(self):
-        return len(self.dataset)
-
-
-
 if __name__ == "__main__":
-    # loader = NarrativeQALoader()
-    # print("narrativeqa")
     loader = NovelQALoader("NovelQA")
     print(loader[0]["qa"][0])    
     print(loader[0]["qa"][0]["question"].split("\n")[0])
-    # loader = temp_loader("test_temp/doc.txt")
-    # print(loader[0]["book"])
-    # print(loader[0]["qa"])
-    # raise Exception("stop")
     loader = InfiniteChoiceLoader()
     print(loader[0].keys())
     print(type(loader[0]["book"]))
     print(loader[0]["qa"])
-    
-    
-    # loader = InfiniteQALoader()
-    # print(loader[0].keys())
-    # print(type(loader[0]["book"]))
-    # print(loader[0]["qa"])
-    # print(len(loader))
-    # print(loader.available_ids)
+    loader = InfiniteQALoader()
+    print(loader[0].keys())
+    print(type(loader[0]["book"]))
+    print(loader[0]["qa"])
+    print(len(loader))
