@@ -62,15 +62,3 @@ Step-by-step:
 ## 📬 Contact & Citation
 
 If you use this code or find it helpful in your research, please consider citing our work. For questions or dataset access (NovelQA), please contact the original authors.
-
-```
-@misc{zhao2025e2graphragstreamlininggraphbasedrag,
-      title={E^2GraphRAG: Streamlining Graph-based RAG for High Efficiency and Effectiveness}, 
-      author={Yibo Zhao and Jiapeng Zhu and Ye Guo and Kangkang He and Xiang Li},
-      year={2025},
-      eprint={2505.24226},
-      archivePrefix={arXiv},
-      primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2505.24226}, 
-}
-```
