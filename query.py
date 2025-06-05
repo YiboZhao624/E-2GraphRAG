@@ -34,7 +34,7 @@ class Retriever:
         self.merge_num = kwargs.get("merge_num", 5)
         self.min_count = kwargs.get("min_count", 2)
         self.overlap = kwargs.get("overlap", 100)
-        self.tokenizer = kwargs.get("tokenizer","/root/shared_planing/LLM_model/Qwen2.5-7B-Instruct")
+        self.tokenizer = kwargs.get("tokenizer","/path/to/your/model")
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer)
         if kwargs.get("embedder", "BAAI/bge-m3") is not None:
             self.embedder = SentenceTransformer(kwargs.get("embedder", "BAAI/bge-m3"),device=self.device)
