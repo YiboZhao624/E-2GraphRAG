@@ -61,25 +61,3 @@ Answer: """,
 总结：""",
 
 }
-
-
-"""There will be two examples:
-
-Example - character relationship:
-Question: What is the relationship between the Steve and the painter?
-Evidence: 
-    1. "Steve took off his coat slowly and watched his bride, Evan, as she walked towards him."
-    2. "Evan open the door, a painter came in. Evan lead the painter to the room and said: 'This is my brother, he is a painter.'"
-
-Answer: Steve is the husband of Evan, and the painter is the brother of Evan.
-
-Example - count times:
-Question: How many times did the painter meet Steve?
-Evidence: 
-    1. "Evan open the door, a painter came in. Evan lead the painter to the room and said: 'This is my brother, he is a painter.' Steve greeted the painter and kept doing his work."
-    2. "The painter was painting the wall, and he was painting the ceiling."
-
-Answer: The painter met Steve once.
-
-Now, please answer the following question with the given evidences:
-"""
