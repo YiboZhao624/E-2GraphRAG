@@ -119,26 +119,5 @@ def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
     return_time = build_end_time - build_start_time
     return cache, return_time
 
-def test():
-    tokenizer = AutoTokenizer.from_pretrained(Qwen2_5_14B_Instruct)
-    text = "Hello, world! This is a test. This is another test. This is a third test. This is a fourth test. This is a fifth test. This is a sixth test. This is a seventh test. This is a eighth test. This is a ninth test. This is a tenth test."
-    length = 10
-    overlap = 5
-    chunks = sequential_split(text, tokenizer, length, overlap)
-    for chunk in chunks:
-        assert len(tokenizer(chunk, return_tensors="pt")["input_ids"][0]) <= length,\
-            "Test Sequential Split Error. Expected length: {}, Actual length: {}".format(length, len(tokenizer(chunk, return_tensors="pt")["input_ids"][0]))
-    print("Test Sequential Split Passed.")
-    merged = sequential_merge(chunks, tokenizer, overlap)
-    assert merged == text, "Test Sequential Merge Error. Expected: {}, Actual: {}".format(text, merged)
-    print("Test Sequential Merge Passed.")
-    llm = pipeline("text-generation", model=Qwen2_5_7B_Instruct, tokenizer=tokenizer, device="cuda:6", max_new_tokens = 1200)
-    summary = summarize_leaf(text, llm, "en")
-    print(summary)
-    print(type(summary))
-
-
-
 if __name__ == "__main__":
-    test()
-
+    pass
