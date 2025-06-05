@@ -24,9 +24,11 @@ E²GraphRAG is a lightweight and modular framework designed to enhance both **ef
 We use data from:
 
 - [📚 NovelQA](https://huggingface.co/datasets/NovelQA/NovelQA)
-  *Access via request to the original authors.*
+  Partly open-source, to obtain the full dataset, please *access via a request to the original authors.*
 - [🔁 InfiniteBench](https://github.com/OpenBMB/InfiniteBench)
   *Fully open-source and publicly available.*
+
+You can find how to obtain the data in the `./data/README.md`.
 
 > **Note:** After obtaining the datasets, specify the data path when initializing the `Dataloader` class.
 
