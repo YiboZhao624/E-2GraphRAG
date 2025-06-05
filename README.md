@@ -1,4 +1,4 @@
-# README
+# E$^2$GraphRAG: Streamlining Graph-based RAG for High Efficiency and Effectiveness 
 
 ## 1. File Structure
 
@@ -23,6 +23,8 @@ We leverage the data from [NovelQA](https://huggingface.co/datasets/NovelQA/Nove
 
 ## 3. Usage
 
+Please set up the environment by running `pip install -r requirement.txt`.
+
 We provide the main.py file to run the entire pipeline, including the tree building, graph extraction, and answer generation. You need to first create a config.yaml file to specify the parameters, and then run the following command:
 
 ```bash
@@ -30,7 +32,3 @@ python main.py --config <path_to_config_file>
 ```
 
 the example config file is provided in the ./configs/example_config.yaml
-
-## 4. Reproduce the Results
-
-To ensure a better reproducibility, we provide the built tree and extracted graph in the ./cache folder. You can directly use them and `main_cacheready.py` to reproduce the results. Due to some books in the NovelQA dataset are not available publicly, we provide the results of the public domain books only.
