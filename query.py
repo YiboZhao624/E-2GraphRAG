@@ -87,6 +87,44 @@ class Retriever:
             collapsed_tree_ids.append(key)
         return collapsed_tree, collapsed_tree_ids
 
+    def _detect_neighbor_nodes(self, keys:Set[str], chunk_id: str) -> List[str]:
+        # detect the neighbor nodes of the chunk_id.
+        # return the neighbor nodes.
+        int_chunk_id = int(chunk_id.split("_")[-1])
+        front = True
+        back = True
+        neighbor_nodes = [chunk_id]
+        front_int_chunk_id = int_chunk_id
+        back_int_chunk_id = int_chunk_id
+        while front or back:
+            if front:
+                front_int_chunk_id = front_int_chunk_id - 1
+                if front_int_chunk_id < 0 or set(self.inverse_index.get(front_int_chunk_id, [])) & keys != keys:
+                    front = False
+                str_chunk_id = "leaf_{}".format(front_int_chunk_id)
+                append = True
+                for key in keys:
+                    if str_chunk_id not in self.index.get(key, []):
+                        append = False
+                        front = False
+                        break
+                if append:
+                    neighbor_nodes.append(str_chunk_id)
+            if back:
+                back_int_chunk_id += 1
+                if set(self.inverse_index.get(back_int_chunk_id, [])) & keys != keys:
+                    back = False
+                str_chunk_id = "leaf_{}".format(back_int_chunk_id)
+                append = True
+                for key in keys:
+                    if str_chunk_id not in self.index.get(key, []):
+                        append = False
+                        back = False
+                        break
+                if append:
+                    neighbor_nodes.append(str_chunk_id)
+        return neighbor_nodes
+
     def _build_faiss_index(self):
         # build the faiss index.
         # only used when the dense retrieval is implemented.
