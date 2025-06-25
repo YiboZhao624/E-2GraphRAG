@@ -5,7 +5,7 @@
     <img src="https://img.shields.io/badge/arXiv-2505.24226-b31b1b?logo=arxiv&logoColor=white&style=for-the-badge" alt="arXiv">
   </a>
   &nbsp;&nbsp;
-  <a href="./README.zh-CN.md">
+  <a href="./README_zh.md">
     <img src="https://img.shields.io/badge/文档-中文版-blue?style=for-the-badge&logo=readthedocs&logoColor=white" alt="中文说明">
   </a>
 </p>
