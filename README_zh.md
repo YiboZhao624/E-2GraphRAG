@@ -50,15 +50,15 @@ pip install -r requirements.txt
 
 运行步骤如下：
 
-Step 1：准备配置文件
-  使用 YAML 格式的配置文件来定义关键参数。
+> Step 1：准备配置文件
+> 使用 YAML 格式的配置文件来定义关键参数。
 
-  👉 示例路径：./configs/example_config.yaml
+> 👉 示例路径：./configs/example_config.yaml
 
 Step 2：运行主程序
-```
-  python main.py --config <配置文件路径>
-```
+> ```
+>  python main.py --config <配置文件路径>
+> ```
 
 ### 📬 联系我们 & 引用
 
