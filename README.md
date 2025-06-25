@@ -64,3 +64,7 @@ Step-by-step:
 ## 📬 Contact & Citation
 
 If you use this code or find it helpful in your research, please consider citing our work. For questions or dataset access (NovelQA), please contact the original authors.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=YiboZhao624/E-2GraphRAG&type=Date)](https://www.star-history.com/#YiboZhao624/E-2GraphRAG&Date)
