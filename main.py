@@ -35,7 +35,7 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
         with timer.timer("total"):
             with mp.Pool(processes=2) as pool:
                 print("Starting parallel processing...")
-                
+               
                 build_args = (
                     configs["llm"]["llm_path"],
                     configs["llm"]["llm_device"],
