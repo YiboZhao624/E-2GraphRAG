@@ -5,6 +5,36 @@ from dataloader import NovelQALoader, InfiniteChoiceLoader, InfiniteQALoader
 import json,os
 from extract_graph import build_graph
 
+def EM_score(pred, gold):
+    return standardize_answer(pred) == standardize_answer(gold)
+
+def standardize_answer(answer):
+    return answer.strip().lower()
+
+def RL_score(pred, gold):
+    """
+    Calculate Rouge-L score using rouge library
+    Args:
+        pred: prediction string
+        gold: gold reference string
+    Returns:
+        float: Rouge-L F1 score
+    """
+    # Standardize inputs
+    pred = standardize_answer(pred)
+    gold = standardize_answer(gold)
+    
+    # Handle empty strings
+    if not pred or not gold:
+        return 0.0
+    
+    rouge = Rouge()
+    try:
+        scores = rouge.get_scores(pred, gold)[0]
+        return round(scores['rouge-l']['f'], 4)  # 取4位小数
+    except:
+        return 0.0
+
 def load_dataset(dataset_name:str, dataset_path:str):
     if dataset_name == "NovelQA":
         return NovelQALoader(dataset_path)
