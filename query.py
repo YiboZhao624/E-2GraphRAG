@@ -1,4 +1,4 @@
-from extract_graph import naive_extract_graph
+from extract_graph import Extractor
 from build_tree import sequential_merge
 from typing import List, Tuple, Dict, Set
 from itertools import combinations
@@ -15,7 +15,7 @@ import copy
 import numpy as np
 
 class Retriever:
-    def __init__(self, cache_tree, G:nx.Graph, index, appearance_count:Dict[str, int], nlp:spacy.Language, **kwargs) -> None:
+    def __init__(self, cache_tree, G:nx.Graph, index, appearance_count:Dict[str, int], nlp:Extractor, **kwargs) -> None:
         # cache_tree: summary tree of the document.
         # G: graph of the document.
         # index: noun to chunks index. another index will be built in the get_inverse_index function.
@@ -423,7 +423,7 @@ class Retriever:
     def query(self, query, **kwargs):
         # step 1: extract the Entities from the query.
         # reuse the naive_extract_graph function, which is used in the graph building process.
-        entities = naive_extract_graph(query.split("\n")[0], self.nlp)#
+        entities = self.nlp.naive_extract_graph(query.split("\n")[0])
         entities = entities["nouns"]
 
         # step 2.0: set up the parameters.
