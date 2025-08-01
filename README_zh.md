@@ -63,7 +63,3 @@ Step 2：运行主程序
 ### 📬 联系我们 & 引用
 
 如果您在研究中使用了本代码，或者觉得本项目对您有帮助，欢迎引用我们的工作。如有问题，或需获取 NovelQA 数据集，请联系原作者。
-
-### Star趋势图
-
-[![Star History Chart](https://api.star-history.com/svg?repos=YiboZhao624/E-2GraphRAG&type=Date)](https://www.star-history.com/#YiboZhao624/E-2GraphRAG&Date)

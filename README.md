@@ -10,7 +10,6 @@
   </a>
 </p>
 
-
 E²GraphRAG is a lightweight and modular framework designed to enhance both **efficiency** and **effectiveness** in Graph-based Retrieval-Augmented Generation (RAG). It streamlines the pipeline from document parsing to answer generation via structured graph reasoning.
 
 ## 📁 Project Structure
