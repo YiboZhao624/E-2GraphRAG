@@ -4,24 +4,16 @@ import json
 import spacy
 import networkx as nx
 from itertools import combinations
-from typing import List, Tuple
+from typing import List, Tuple, Literal
 import time
 
-def load_nlp(language:str="en"):
-    if language == "en":
-        try:
-            nlp = spacy.load("en_core_web_lg")
-        except:
-            print("Downloading spacy model...")
-            spacy.cli.download("en_core_web_lg")
-            nlp = spacy.load("en_core_web_lg")
-    elif language == "zh":
-        try:
-            nlp = spacy.load("zh_core_web_lg")
-        except:
-            print("Downloading spacy model...")
-            spacy.cli.download("zh_core_web_lg")
-            nlp = spacy.load("zh_core_web_lg")
+def load_nlp(language:str="en", method: Literal["Spacy"]="Spacy"):
+    if method == "Spacy":
+        nlp = SpacyExtractor(language)
+    elif method == "NLTK":
+        nlp = NLTKExtractor(language)
+    else:
+        raise ValueError("Invalid method: {}".format(method))
     return nlp
         
 class Extractor:
@@ -139,75 +131,6 @@ class NLTKExtractor(Extractor):
     def naive_extract_graph(self, text: str):
         raise NotImplemented
 
-def naive_extract_graph(text:str, nlp:spacy.Language):
-    # process the text
-    doc = nlp(text)
-    
-    # noun pairs provide the edge.
-    noun_pairs = {}
-
-    # all_nouns saving the nodes.
-    all_nouns = set()
-
-    # process the name like John Brown
-    double_nouns = {}
-    appearance_count = {}
-
-    for sent in doc.sents:
-        sentence_terms = []
-
-        ent_positions = set()
-        for ent in sent.ents:
-            if ent.label_ == "PERSON":
-                # handle the name like John Brown, John Brown Smith.
-                name_parts = ent.text.split()
-                if len(name_parts) >= 2:
-                    for name in name_parts:
-                        double_nouns[name] = name_parts
-                    sentence_terms.extend(name_parts)
-                    for name in name_parts:
-                        appearance_count[name] = appearance_count.get(name, 0) + 1
-                else:
-                    sentence_terms.append(ent.text)
-                    appearance_count[ent.text] = appearance_count.get(ent.text, 0) + 1
-            
-            # process the organization or country.
-            elif ent.label_ in ["ORG", "GPE"]:
-                sentence_terms.append(ent.text)
-                appearance_count[ent.text] = appearance_count.get(ent.text, 0) + 1
-            for token in ent:
-                ent_positions.add(token.i)
-
-        for token in sent:
-            if token.i in ent_positions:
-                continue
-            if token.pos_ == "NOUN" and token.lemma_.strip():
-                sentence_terms.append(token.lemma_.lower())
-                appearance_count[token.lemma_.lower()] = appearance_count.get(token.lemma_.lower(), 0) + 1
-            elif token.pos_ == "PROPN" and token.text.strip():
-                sentence_terms.append(token.lemma_.lower())
-                appearance_count[token.lemma_.lower()] = appearance_count.get(token.lemma_.lower(), 0) + 1
-            elif token.pos_ == "PROPN" and token.text.strip():
-                sentence_terms.append(token.text)
-                appearance_count[token.text] = appearance_count.get(token.text, 0) + 1
-                
-        all_nouns.update(sentence_terms)
-        
-        # Count the cooccurrence of terms
-        for i in range(len(sentence_terms)):
-            for j in range(i+1, len(sentence_terms)):
-                term1, term2 = sorted([sentence_terms[i], sentence_terms[j]])
-                pair = (term1, term2)
-                noun_pairs[pair] = noun_pairs.get(pair, 0) + 1
-    
-    return {
-        "nouns": list(all_nouns),
-        "cooccurrence": noun_pairs,
-        "double_nouns": double_nouns,
-        "appearance_count": appearance_count
-    }
-
-
 def build_graph(triplets: List[Tuple[str, str, int]]) -> nx.Graph:
     '''
     build the graph from the triplets, merging weights of duplicate edges
@@ -253,7 +176,7 @@ def save_appearance_count(result, cache_path:str):
     with open(cache_path, "w") as f:
         json.dump(result, f, indent=4)
     
-def extract_graph(text:List[str], cache_folder:str, nlp:spacy.Language, use_cache=True, reextract=False):
+def extract_graph(text:List[str], cache_folder:str, nlp:Extractor, use_cache=True, reextract=False):
     extract_start_time = time.time()
     if use_cache and os.path.exists(os.path.join(cache_folder, "graph.json")) and os.path.exists(os.path.join(cache_folder, "index.json")) and os.path.exists(os.path.join(cache_folder, "appearance_count.json")):
         return load_cache(cache_folder), -1
@@ -266,7 +189,7 @@ def extract_graph(text:List[str], cache_folder:str, nlp:spacy.Language, use_cach
         appearance_count = {}
 
         for i, chunk in enumerate(text):
-            naive_result = naive_extract_graph(chunk, nlp)
+            naive_result = nlp.naive_extract_graph(chunk)
             # not merge the entities.
             appearance_count["leaf_{}".format(i)] = naive_result["appearance_count"]
 
