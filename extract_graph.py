@@ -24,6 +24,121 @@ def load_nlp(language:str="en"):
             nlp = spacy.load("zh_core_web_lg")
     return nlp
         
+class Extractor:
+    def __init__(self, language):
+        self.language = language
+        self.nlp = self.load_model(self, language)
+    
+    def load_model(self, language):
+        raise NotImplementedError("Subclass must implement the load_model method.")
+
+    def __call__(self, text:str):
+        raise NotImplementedError("Subclass must implement __call__ method")
+    
+    def naive_extract_graph(self, text:str):
+        raise NotImplementedError("Subclass must implement the naive_extract_graph method.")
+
+class SpacyExtractor(Extractor):
+    def __init__(self, language:str="en"):
+        super().__init__(language)
+        self.nlp = self.load_model(self, language)
+    
+    def load_model(self, language):
+        if language == "en":
+            try:
+                nlp = spacy.load("en_core_web_lg")
+            except:
+                print("Downloading spacy model...")
+                spacy.cli.download("en_core_web_lg")
+                nlp = spacy.load("en_core_web_lg")
+        elif language == "zh":
+            try:
+                nlp = spacy.load("en_core_web_lg")
+            except:
+                print("Downloading spacy model...")
+                spacy.cli.download("en_core_web_lg")
+                nlp = spacy.load("en_core_web_lg")
+        return nlp
+    
+    def naive_extract_graph(self, text: str):
+        doc = self.nlp(text)
+
+        # noun pairs provide the edge.
+        noun_pairs = {}
+
+        # all_nouns saving the nodes.
+        all_nouns = set()
+
+        # process the name like John Brown
+        double_nouns = {}
+        appearance_count = {}
+
+        # TODO: 一个chunk里的连通还是一个句子里连通？
+        for sent in doc.sents:
+            sentence_terms = []
+
+            ent_positions = set()
+            for ent in sent.ents:
+                if ent.label_ == "PERSON":
+                    # handle the name like John Brown, John Brown Smith.
+                    name_parts = ent.text.split()
+                    if len(name_parts) >= 2:
+                        for name in name_parts:
+                            double_nouns[name] = name_parts
+                        sentence_terms.extend(name_parts)
+                        for name in name_parts:
+                            appearance_count[name] = appearance_count.get(name, 0) + 1
+                    else:
+                        sentence_terms.append(ent.text)
+                        appearance_count[ent.text] = appearance_count.get(ent.text, 0) + 1
+                
+                # process the organization or country.
+                elif ent.label_ in ["ORG", "GPE"]:
+                    sentence_terms.append(ent.text)
+                    appearance_count[ent.text] = appearance_count.get(ent.text, 0) + 1
+                for token in ent:
+                    ent_positions.add(token.i)
+
+            for token in sent:
+                if token.i in ent_positions:
+                    continue
+                if token.pos_ == "NOUN" and token.lemma_.strip():
+                    sentence_terms.append(token.lemma_.lower())
+                    appearance_count[token.lemma_.lower()] = appearance_count.get(token.lemma_.lower(), 0) + 1
+                elif token.pos_ == "PROPN" and token.text.strip():
+                    sentence_terms.append(token.lemma_.lower())
+                    appearance_count[token.lemma_.lower()] = appearance_count.get(token.lemma_.lower(), 0) + 1
+                elif token.pos_ == "PROPN" and token.text.strip():
+                    sentence_terms.append(token.text)
+                    appearance_count[token.text] = appearance_count.get(token.text, 0) + 1
+                    
+            all_nouns.update(sentence_terms)
+            
+            # Count the cooccurrence of terms
+            for i in range(len(sentence_terms)):
+                for j in range(i+1, len(sentence_terms)):
+                    term1, term2 = sorted([sentence_terms[i], sentence_terms[j]])
+                    pair = (term1, term2)
+                    noun_pairs[pair] = noun_pairs.get(pair, 0) + 1
+        
+        return {
+            "nouns": list(all_nouns),
+            "cooccurrence": noun_pairs,
+            "double_nouns": double_nouns,
+            "appearance_count": appearance_count
+        }
+    
+class NLTKExtractor(Extractor):
+    def __init__(self, language:str="en"):
+        super().__init__(language)
+        self.nlp = self.load_model(self, language)
+    
+    def load_model(self, language):
+        raise NotImplemented
+
+    def naive_extract_graph(self, text: str):
+        raise NotImplemented
+
 def naive_extract_graph(text:str, nlp:spacy.Language):
     # process the text
     doc = nlp(text)
