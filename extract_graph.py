@@ -131,12 +131,39 @@ class NLTKExtractor(Extractor):
         self.method = "NLTK"
     
     def load_model(self, language):
-        nltk.download('punkt')
-        nltk.download('averaged_perceptron_tagger')
-        nltk.download('maxent_ne_chunker')
-        nltk.download('words')
-        nltk.download('averaged_perceptron_tagger_eng')
-        nltk.download('maxent_ne_chunker_tab')
+        data_dir = "/root/nltk_data"
+        if not os.path.exists(data_dir):
+            logger.info(f"NLTK dir does not exist, now creating.")
+            os.makedirs(data_dir)
+        if data_dir not in nltk.data.path:
+            logger.info(f"Adding '{data_dir}' to NLTK search path.")
+            nltk.data.path.append(data_dir)
+        else:
+            logger.info(f"NLTK data directory '{data_dir}' is already in the search path.")
+        required_packages = {
+            'tokenizers/punkt': 'punkt',
+            'taggers/averaged_perceptron_tagger': 'averaged_perceptron_tagger',
+            'chunkers/maxent_ne_chunker': 'maxent_ne_chunker',
+            'corpora/words': 'words',
+            'taggers/averaged_perceptron_tagger_eng': 'averaged_perceptron_tagger_eng',
+            'chunkers/maxent_ne_chunker_tab': 'maxent_ne_chunker_tab'
+        }
+        print("\n正在检查所需的NLTK数据包...")
+        all_packages_available = True
+
+        for resource_path, package_id in required_packages.items():
+            try:
+                nltk.data.find(resource_path)
+            except LookupError:
+                all_packages_available = False
+                logger.info(f"Package {package_id} is missing, now downloading...")
+                nltk.download(package_id, download_dir=data_dir)
+                logger.info(f"Package {package_id} downloaded.")
+
+        if all_packages_available:
+            logger.info("All required NLTK packages are ready.")
+        else:
+            logger.info("Some packages are missing, now downloading...")
         return None
 
     def naive_extract_graph(self, text: str):
@@ -275,6 +302,8 @@ def extract_graph(text:List[str], cache_folder:str, nlp:Extractor, use_cache=Tru
         appearance_count = {}
 
         for i, chunk in enumerate(text):
+            if i % 10 == 1:
+                logger.info(f"Now extracting the {i}th chunk...")
             naive_result = nlp.naive_extract_graph(chunk)
             # not merge the entities.
             appearance_count["leaf_{}".format(i)] = naive_result["appearance_count"]
