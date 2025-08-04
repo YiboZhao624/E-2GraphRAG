@@ -18,4 +18,4 @@ git clone https://huggingface.co/datasets/NovelQA/NovelQA
 
 InfiniteBench is created by the authors of paper [\inftyBench: Extending Long Context Evaluation Beyond 100K Tokens](https://arxiv.org/abs/2402.13718).
 
-For simplicity, you can download the file `longbook_choice_eng.jsonl` and `longbook_qa_eng.jsonl` from the link [InfiniteBench](https://huggingface.co/datasets/xinrongzhang2022/InfiniteBench/tree/main) and put them in the directory `./data/InfiniteBench`.
+For simplicity, you can download the file `longbook_choice_eng.jsonl` and `longbook_qa_eng.jsonl` from the link [InfiniteBench](https://huggingface.co/datasets/xinrongzhang2022/InfiniteBench/tree/main) and put them in the directory `./data/InfiniteBench`. We also provide the downloading script `download.sh` originally from the InfinteBench repo.
