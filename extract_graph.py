@@ -131,21 +131,15 @@ class NLTKExtractor(Extractor):
         self.method = "NLTK"
     
     def load_model(self, language):
-        logger.info("start loading nltk model")
         nltk.download('punkt')
-        logger.info("Downloaded punkt")
-        # For the POS tagging.
         nltk.download('averaged_perceptron_tagger')
-        logger.info("Downloaded averaged_perceptron_tagger")
-        # For the NER.
         nltk.download('maxent_ne_chunker')
-        logger.info("Downloaded maxent_ne_chunker")
         nltk.download('words')
-        logger.info("Downloaded words")
+        nltk.download('averaged_perceptron_tagger_eng')
+        nltk.download('maxent_ne_chunker_tab')
         return None
 
     def naive_extract_graph(self, text: str):
-        logger.info("Start Extracting Graph with NLTK...")
         sentences = nltk.tokenize.sent_tokenize(text)
 
         # noun pairs provide the edge.
