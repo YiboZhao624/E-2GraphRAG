@@ -9,10 +9,11 @@ def setup_logging(level=logging.INFO, log_file=None):
     logging.basicConfig(
         level=level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%H:%M:%S',
         handlers=[
             logging.StreamHandler(),  # Console handler
             *([logging.FileHandler(log_file)] if log_file else [])
-        ]
+        ],
     )
     return logging.getLogger(__name__)
 
