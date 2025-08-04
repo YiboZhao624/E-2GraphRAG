@@ -1,7 +1,11 @@
 from datasets import load_dataset
 import os
 import json
+import logging
 from tqdm import tqdm
+
+# Get logger for this module
+logger = logging.getLogger(__name__)
 
 class NovelQALoader:
     '''
@@ -99,7 +103,7 @@ class InfiniteQALoader:
                         "answer": answer
                     })
                 except json.JSONDecodeError as e:
-                    print(f"Warning: Skipping invalid JSON line: {e}")
+                    logger.warning(f"Warning: Skipping invalid JSON line: {e}")
                     continue
                     
         return dataset, list(dataset.keys())

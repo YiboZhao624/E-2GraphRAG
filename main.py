@@ -1,6 +1,6 @@
 import multiprocessing as mp
 from extract_graph import load_nlp
-from utils import Timer, sequential_split
+from utils import Timer, sequential_split, logger
 import yaml
 import torch
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
@@ -34,7 +34,7 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
     try:
         with timer.timer("total"):
             with mp.Pool(processes=2) as pool:
-                print("Starting parallel processing...")
+                logger.info("Starting parallel processing...")
                
                 build_args = (
                     configs["llm"]["llm_path"],
@@ -51,48 +51,48 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
                 
                 extract_args = (text, cache_folder, configs.get("language", "en"), configs["extractor"]["method"], configs["cluster"]["force_Reextract"])
                 
-                print("Launching build_tree_task...")
+                logger.info("Launching build_tree_task...")
                 build_future = pool.apply_async(build_tree_task, (build_args,))
                 
-                print("Launching extract_graph_task...")
+                logger.info("Launching extract_graph_task...")
                 extract_future = pool.apply_async(extract_graph_task, (extract_args,))
                 
                 # 获取结果
                 try:
                     build_res, build_time_cost = build_future.get()
                 except Exception as e:
-                    print(f"Tree building failed: {e}")
-                    print(f"Error type: {type(e).__name__}")
-                    print(f"Detailed error information: {e.args}")
+                    logger.error(f"Tree building failed: {e}")
+                    logger.error(f"Error type: {type(e).__name__}")
+                    logger.error(f"Detailed error information: {e.args}")
                     import traceback
-                    print(f"Error stack:\n{traceback.format_exc()}")
+                    logger.error(f"Error stack:\n{traceback.format_exc()}")
                     raise e
         
                 try:
                     extract_res, extract_time_cost = extract_future.get()
                 except Exception as e:
-                    print(f"Graph extraction failed: {e}")
-                    print(f"Error type: {type(e).__name__}")
-                    print(f"Detailed error information: {e.args}")
+                    logger.error(f"Graph extraction failed: {e}")
+                    logger.error(f"Error type: {type(e).__name__}")
+                    logger.error(f"Detailed error information: {e.args}")
                     import traceback
-                    print(f"Error stack:\n{traceback.format_exc()}")
+                    logger.error(f"Error stack:\n{traceback.format_exc()}")
                     raise e
 
     except Exception as e:
-        print(f"Error occurred in parallel_build_extract: {e}")
-        print("traceback:")
-        print(traceback.format_exc())
+        logger.error(f"Error occurred in parallel_build_extract: {e}")
+        logger.error("traceback:")
+        logger.error(traceback.format_exc())
         raise e
     
     finally:
         clean_cuda_memory(device_id)
         gc.collect()
 
-    print("-" * 15)
-    print(f"total time: {timer['total']} seconds")
-    print(f"build time: {build_time_cost} seconds")
-    print(f"extract time: {extract_time_cost} seconds")
-    print("-" * 15)
+    logger.info("-" * 15)
+    logger.info(f"total time: {timer['total']} seconds")
+    logger.info(f"build time: {build_time_cost} seconds")
+    logger.info(f"extract time: {extract_time_cost} seconds")
+    logger.info("-" * 15)
     
     if extract_time_cost != -1 and build_time_cost != -1:
         with open(os.path.join(cache_folder, "time_cost.txt"), "w") as f:
@@ -124,7 +124,7 @@ def main():
                 if configs.get("split_method", "sequential") == "sequential":
                     text = sequential_split(text, tokenizer, configs["cluster"]["length"], configs["cluster"]["overlap"])
                 elif configs.get("split_method", "sequential") == "nn":
-                    print("split_method: nn")
+                    logger.info("split_method: nn")
                     text = text.split("\n\n")
                 qa = data_piece["qa"]
                 
@@ -183,14 +183,14 @@ def main():
                                 f.write(f"question {i}: query time: {query_end_time - query_start_time}\n")
 
                             evidences = model_supplement["chunks"]
-                            print("len_chunks: ", model_supplement.get("len_chunks", 0))
-                            print("entities: ", model_supplement.get("entities", []))
-                            print("keys: ", model_supplement.get("keys", []))
+                            logger.info(f"len_chunks: {model_supplement.get('len_chunks', 0)}")
+                            logger.info(f"entities: {model_supplement.get('entities', [])}")
+                            logger.info(f"keys: {model_supplement.get('keys', [])}")
                             
                         except Exception as e:
-                            print(f"Error occurred: {e}")
-                            print("traceback:")
-                            print(traceback.format_exc())
+                            logger.error(f"Error occurred: {e}")
+                            logger.error("traceback:")
+                            logger.error(traceback.format_exc())
                             raise e
 
                         if configs["dataset"]["dataset_name"] == "NovelQA" or configs["dataset"]["dataset_name"] == "InfiniteChoice":
@@ -198,12 +198,12 @@ def main():
                             try:
                                 inputs = tokenizer(input_text, return_tensors="pt").to(configs["llm"]["llm_device"])
                                 with torch.no_grad():
-                                    print("inputs token length: ", inputs.input_ids.shape[-1])
+                                    logger.info(f"inputs token length: {inputs.input_ids.shape[-1]}")
                                     output_logits = llm(**inputs).logits[0,-1]
                             except Exception as e:
-                                print(f"Error occurred: {e}")
-                                print("traceback:")
-                                print(traceback.format_exc())
+                                logger.error(f"Error occurred: {e}")
+                                logger.error("traceback:")
+                                logger.error(traceback.format_exc())
                                 raise e
                             finally:
                                 clean_cuda_memory(device_id)
@@ -225,11 +225,11 @@ def main():
                             else:
                                 input_text = Prompts["QA_prompt_answer"].format(question = question,
                                                         evidence = model_supplement)
-                            print("input_text: ", len(input_text))
+                            logger.info(f"input_text: {len(input_text)}")
                             output = llm(input_text, max_new_tokens = 300)
                             output_text = output[0]["generated_text"]
                             output_text = output_text[len(input_text):]
-                            print("output_text: ", output_text)
+                            logger.info(f"output_text: {output_text}")
                         else:
                             raise ValueError("Invalid dataset")
                         res.append({
@@ -248,22 +248,22 @@ def main():
                         json.dump(res, f, indent=4)
                 
                 except Exception as e:
-                    print(f"Error occurred during QA processing: {e}")
-                    print("traceback:")
-                    print(traceback.format_exc())
-                    print(f"TODO:Error occurred during book {i} processing. Set resumeIndex to {i}.")
+                    logger.error(f"Error occurred during QA processing: {e}")
+                    logger.error("traceback:")
+                    logger.error(traceback.format_exc())
+                    logger.error(f"TODO:Error occurred during book {i} processing. Set resumeIndex to {i}.")
                     raise e
                 finally:                    
                     if 'llm' in locals():
                         del llm
-                        print("llm deleted")
+                        logger.info("llm deleted")
                         torch.cuda.empty_cache()
                         torch.cuda.synchronize()
                 
         except Exception as e:
-            print(f"Error occurred during dataset processing: {e}")
-            print("traceback:")
-            print(traceback.format_exc())
+            logger.error(f"Error occurred during dataset processing: {e}")
+            logger.error("traceback:")
+            logger.error(traceback.format_exc())
             raise e
         finally:
             del tokenizer
@@ -271,9 +271,9 @@ def main():
                 torch.cuda.empty_cache()
 
     except Exception as e:
-        print(f"Error occurred in main: {e}")
-        print("traceback:")
-        print(traceback.format_exc())
+        logger.error(f"Error occurred in main: {e}")
+        logger.error("traceback:")
+        logger.error(traceback.format_exc())
         # Ensure all processes are terminated
         for child in mp.active_children():
             child.terminate()
@@ -286,8 +286,8 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        print(f"Program terminated with error: {e}")
-        print(traceback.format_exc())
+        logger.error(f"Program terminated with error: {e}")
+        logger.error(traceback.format_exc())
         # Ensure all processes are terminated
         for child in mp.active_children():
             child.terminate()

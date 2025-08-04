@@ -6,6 +6,10 @@ import networkx as nx
 from itertools import combinations
 from typing import List, Tuple, Literal
 import time
+import logging
+
+# Get logger for this module
+logger = logging.getLogger(__name__)
 
 def load_nlp(language:str="en", method: Literal["Spacy", "NLTK"]="Spacy"):
     if method == "Spacy":
@@ -17,7 +21,7 @@ def load_nlp(language:str="en", method: Literal["Spacy", "NLTK"]="Spacy"):
 class Extractor:
     def __init__(self, language):
         self.language = language
-        self.nlp = self.load_model(self, language)
+        self.nlp = self.load_model(language)
         self.method = "Extractor"
     
     def load_model(self, language):
@@ -32,7 +36,7 @@ class Extractor:
 class SpacyExtractor(Extractor):
     def __init__(self, language:str="en"):
         super().__init__(language)
-        self.nlp = self.load_model(self, language)
+        self.nlp = self.load_model(language)
         self.method = "Spacy"
     
     def load_model(self, language):
@@ -40,14 +44,14 @@ class SpacyExtractor(Extractor):
             try:
                 nlp = spacy.load("en_core_web_lg")
             except:
-                print("Downloading spacy model...")
+                logger.info("Downloading spacy model...")
                 spacy.cli.download("en_core_web_lg")
                 nlp = spacy.load("en_core_web_lg")
         elif language == "zh":
             try:
                 nlp = spacy.load("en_core_web_lg")
             except:
-                print("Downloading spacy model...")
+                logger.info("Downloading spacy model...")
                 spacy.cli.download("en_core_web_lg")
                 nlp = spacy.load("en_core_web_lg")
         return nlp
@@ -123,18 +127,25 @@ class SpacyExtractor(Extractor):
 class NLTKExtractor(Extractor):
     def __init__(self, language:str="en"):
         super().__init__(language)
-        self.nlp = self.load_model(self, language)
+        self.nlp = self.load_model(language)
         self.method = "NLTK"
     
     def load_model(self, language):
+        logger.info("start loading nltk model")
         nltk.download('punkt')
+        logger.info("Downloaded punkt")
         # For the POS tagging.
         nltk.download('averaged_perceptron_tagger')
+        logger.info("Downloaded averaged_perceptron_tagger")
         # For the NER.
         nltk.download('maxent_ne_chunker')
+        logger.info("Downloaded maxent_ne_chunker")
         nltk.download('words')
+        logger.info("Downloaded words")
+        return None
 
     def naive_extract_graph(self, text: str):
+        logger.info("Start Extracting Graph with NLTK...")
         sentences = nltk.tokenize.sent_tokenize(text)
 
         # noun pairs provide the edge.
@@ -310,4 +321,4 @@ if __name__ == "__main__":
     
     # 打印所有边的权重
     for u, v, w in G.edges(data='weight'):
-        print(f"Edge ({u}, {v}): weight = {w}")  # 应该输出: Edge (a, b): weight = 6
+        logger.info(f"Edge ({u}, {v}): weight = {w}")  # 应该输出: Edge (a, b): weight = 6

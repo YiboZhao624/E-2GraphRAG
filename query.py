@@ -10,9 +10,13 @@ from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer
 import torch
 import random
+import logging
 random.seed(1)
 import copy
 import numpy as np
+
+# Get logger for this module
+logger = logging.getLogger(__name__)
 
 class Retriever:
     def __init__(self, cache_tree, G:nx.Graph, index, appearance_count:Dict[str, int], nlp:Extractor, **kwargs) -> None:
@@ -40,7 +44,7 @@ class Retriever:
             self.embedder = SentenceTransformer(kwargs.get("embedder", "BAAI/bge-m3"),device=self.device)
             self.faiss_index = self._build_faiss_index()
         else:
-            print("Warning: the embedder is set to None, dense retrieval is not implemented.")
+            logger.warning("Warning: the embedder is set to None, dense retrieval is not implemented.")
             self.embedder = None
             self.faiss_index = None
 
@@ -55,7 +59,7 @@ class Retriever:
                 del self.faiss_index
             torch.cuda.empty_cache()
         except Exception as e:
-            print(f"Error during Retriever cleanup: {e}")
+            logger.error(f"Error during Retriever cleanup: {e}")
 
     def update(self, cache_tree, G, index, appearance_count):
         # update the retriever, from a document to another document.
@@ -133,7 +137,7 @@ class Retriever:
         if self.embedder is None:
             self.embedder = SentenceTransformer("BAAI/bge-m3",device=self.device)
             self.embedder.eval()
-            print("the embedder is not set, using the default embedder BAAI/bge-m3.")
+            logger.info("the embedder is not set, using the default embedder BAAI/bge-m3.")
         doc_embeds = self.embedder.encode(docs, batch_size=16, device=self.device)
         # print("doc_embeds examples", doc_embeds[0:5][0:5])
         # print("doc_embeds shape", doc_embeds.shape)
@@ -357,7 +361,7 @@ class Retriever:
                 if id in self.index.get(entity, []):
                     filtered_res.setdefault(entity, []).append(id)
         filtered_res = self.merge_keys(filtered_res)
-        print("filtered_res,",filtered_res)
+        logger.debug(f"filtered_res: {filtered_res}")
         return filtered_res
 
     def _check_children(self, chunk_id:str, entities:List[str], visited=None) -> int:
@@ -483,7 +487,7 @@ class Retriever:
         # if the chunk count is not 0, return the result.
         if chunk_count != 0:
             # format the result.
-            print("BOTTOM2TOP: final chunk_count", chunk_count)
+            logger.debug(f"BOTTOM2TOP: final chunk_count {chunk_count}")
             res_str = self.format_res(local_res)
 
             result = {"chunks":res_str}

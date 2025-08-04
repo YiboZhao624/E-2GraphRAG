@@ -1,8 +1,12 @@
 import os
 import torch
+import logging
 from transformers import pipeline, AutoTokenizer, AutoModel
 from build_tree import build_tree, load_cache_summary
 from extract_graph import extract_graph, load_nlp, load_cache
+
+# Get logger for this module
+logger = logging.getLogger(__name__)
 
 def clean_cuda_memory(device_id):
     """清理指定GPU设备的缓存"""
@@ -30,15 +34,15 @@ def build_tree_task(args):
         
         # Process
         result, time_cost = build_tree(text, llm_pipeline, cache_folder, tokenizer, length, overlap, merge_num, language)
-        print(f"build tree task result type: {type(result)}")
-        print(f"build tree task time cost: {time_cost}, -1 means load from cache.")
+        logger.info(f"build tree task result type: {type(result)}")
+        logger.info(f"build tree task time cost: {time_cost}, -1 means load from cache.")
         return result, time_cost
     except Exception as e:
-        print(f"build tree task error: {e}")
-        print(f"{type(e).__name__}")
-        print(f"{e.args}")
+        logger.error(f"build tree task error: {e}")
+        logger.error(f"{type(e).__name__}")
+        logger.error(f"{e.args}")
         import traceback
-        print(f"build tree task error stack:\n{traceback.format_exc()}")
+        logger.error(f"build tree task error stack:\n{traceback.format_exc()}")
         raise e
     finally:
         # Clean up
@@ -53,9 +57,10 @@ def extract_graph_task(args):
     try:
         # Load NLP model in subprocess
         nlp = load_nlp(language, method)
+        logger.info("NLP loaded.")
         (result, index, count), time_cost = extract_graph(text, cache_folder, nlp, use_cache=not force_reextract, reextract=force_reextract)
-        print(f"extract graph task result type: {type(result)}")
-        print(f"extract graph task time cost: {time_cost}, -1 means load from cache.")
+        logger.info(f"extract graph task result type: {type(result)}")
+        logger.info(f"extract graph task time cost: {time_cost}, -1 means load from cache.")
         return (result, index, count), time_cost
     finally:
         # Clean up

@@ -1,3 +1,24 @@
+import os
+import json
+import logging
+from typing import List, Dict, Any
+
+# Configure logging
+def setup_logging(level=logging.INFO, log_file=None):
+    """Setup logging configuration"""
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),  # Console handler
+            *([logging.FileHandler(log_file)] if log_file else [])
+        ]
+    )
+    return logging.getLogger(__name__)
+
+# Create a default logger
+logger = setup_logging()
+
 from typing import List
 from transformers import AutoTokenizer
 from rouge import Rouge
@@ -72,7 +93,7 @@ import time
 import multiprocessing as mp
 from contextlib import contextmanager
 from functools import wraps
-from typing import Dict, Optional
+from typing import Optional
 
 class Timer:
     """计时器类，用于跟踪任务执行时间"""

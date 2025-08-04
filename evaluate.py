@@ -1,4 +1,4 @@
-from utils import EM_score, RL_score
+from utils import EM_score, RL_score, logger
 import json
 import os
 from typing import Dict, List, Tuple
@@ -15,7 +15,7 @@ def calculate_metrics(answer_folder: str, dataset_name: str) -> Tuple[float, flo
         Tuple[float, float, int]: (平均EM分数, 平均RL分数, 总问题数)
     """
     answer_folder_path = os.path.join(answer_folder, dataset_name)
-    print(f"answer_folder: {answer_folder_path}")
+    logger.info(f"answer_folder: {answer_folder_path}")
     
     total_em_score = 0
     total_rl_score = 0
@@ -80,7 +80,7 @@ def calculate_time_cost(cache_folder: str, dataset_name: str) -> Tuple[float, fl
                     elif "extract" in line:
                         extract_time += float(line.split("||")[1])
         except Exception as e:
-            print(f"Error reading time_cost.txt for folder {folder}: {e}")
+            logger.error(f"Error reading time_cost.txt for folder {folder}: {e}")
             continue
     
     return build_time / total_count, extract_time / total_count, total_count
