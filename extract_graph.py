@@ -7,6 +7,7 @@ from itertools import combinations
 from typing import List, Tuple, Literal
 import time
 import logging
+import threading
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
@@ -125,46 +126,66 @@ class SpacyExtractor(Extractor):
         }
     
 class NLTKExtractor(Extractor):
+    _nltk_initialized = False
+    _nltk_init_lock = threading.Lock()
     def __init__(self, language:str="en"):
         super().__init__(language)
         self.nlp = self.load_model(language)
         self.method = "NLTK"
     
-    def load_model(self, language):
-        data_dir = "/root/nltk_data"
-        if not os.path.exists(data_dir):
-            logger.info(f"NLTK dir does not exist, now creating.")
-            os.makedirs(data_dir)
-        if data_dir not in nltk.data.path:
-            logger.info(f"Adding '{data_dir}' to NLTK search path.")
-            nltk.data.path.append(data_dir)
-        else:
-            logger.info(f"NLTK data directory '{data_dir}' is already in the search path.")
-        required_packages = {
-            'tokenizers/punkt': 'punkt',
-            'taggers/averaged_perceptron_tagger': 'averaged_perceptron_tagger',
-            'chunkers/maxent_ne_chunker': 'maxent_ne_chunker',
-            'corpora/words': 'words',
-            'taggers/averaged_perceptron_tagger_eng': 'averaged_perceptron_tagger_eng',
-            'chunkers/maxent_ne_chunker_tab': 'maxent_ne_chunker_tab'
-        }
-        print("\n正在检查所需的NLTK数据包...")
-        all_packages_available = True
+    @classmethod
+    def ensure_initialized(cls):
+        """
+        The core logic that performs the one-time, thread-safe initialization.
+        This method contains your original code, adapted for this pattern.
+        """
+        # 1. Fast, lock-free check. If already initialized, do nothing.
+        if cls._nltk_initialized:
+            return
+        # 2. If not initialized, acquire lock to prevent race conditions
+        with cls._nltk_init_lock:
+            # 3. Double-check after acquiring the lock, in case another thread finished
+            #    while this one was waiting.
+            if cls._nltk_initialized:
+                return
+            
+            logger.info("="*10)
+            logger.info("First-time setup: Running thread-safe NLTK initialization...")
+            logger.info("="*10)
 
-        for resource_path, package_id in required_packages.items():
-            try:
-                nltk.data.find(resource_path)
-            except LookupError:
-                all_packages_available = False
-                logger.info(f"Package {package_id} is missing, now downloading...")
-                nltk.download(package_id, download_dir=data_dir)
-                logger.info(f"Package {package_id} downloaded.")
+            data_dir = "/root/nltk_data"
+            if not os.path.exists(data_dir):
+                logger.info(f"NLTK dir does not exist, now creating.")
+                os.makedirs(data_dir)
+            if data_dir not in nltk.data.path:
+                logger.info(f"Adding '{data_dir}' to NLTK search path.")
+                nltk.data.path.append(data_dir)
+            else:
+                logger.info(f"NLTK data directory '{data_dir}' is already in the search path.")
+            required_packages = {
+                'tokenizers/punkt': 'punkt',
+                'taggers/averaged_perceptron_tagger': 'averaged_perceptron_tagger',
+                'chunkers/maxent_ne_chunker': 'maxent_ne_chunker',
+                'corpora/words': 'words',
+                'taggers/averaged_perceptron_tagger_eng': 'averaged_perceptron_tagger_eng',
+                'chunkers/maxent_ne_chunker_tab': 'maxent_ne_chunker_tab'
+            }
+            all_packages_available = True
 
-        if all_packages_available:
-            logger.info("All required NLTK packages are ready.")
-        else:
-            logger.info("Some packages are missing, now downloading...")
-        return None
+            for resource_path, package_id in required_packages.items():
+                try:
+                    nltk.data.find(resource_path)
+                except LookupError:
+                    all_packages_available = False
+                    logger.info(f"Package {package_id} is missing, now downloading...")
+                    nltk.download(package_id, download_dir=data_dir)
+                    logger.info(f"Package {package_id} downloaded.")
+
+            if all_packages_available:
+                logger.info("All required NLTK packages are ready.")
+            else:
+                logger.info("Some packages are missing, now downloading...")
+            return None
 
     def naive_extract_graph(self, text: str):
         sentences = nltk.tokenize.sent_tokenize(text)
