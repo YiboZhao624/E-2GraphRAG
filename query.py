@@ -20,7 +20,7 @@ class Retriever:
         # G: graph of the document.
         # index: noun to chunks index. another index will be built in the get_inverse_index function.
         # appearance_count: appearance count of the entities in the chunks.
-        # nlp: spacy model.
+        # nlp: Extractor class.
         self.cache_tree = cache_tree
         self.collapse_tree, self.collapse_tree_ids = self._collapse_tree(self.cache_tree)
         self.G = G

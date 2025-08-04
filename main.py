@@ -49,7 +49,7 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
                     configs.get("language", "en")
                 )
                 
-                extract_args = (text, cache_folder, configs.get("language", "en"))
+                extract_args = (text, cache_folder, configs.get("language", "en"), configs["extractor"]["method"], configs["cluster"]["force_Reextract"])
                 
                 print("Launching build_tree_task...")
                 build_future = pool.apply_async(build_tree_task, (build_args,))
@@ -165,7 +165,7 @@ def main():
                     # Process QA
                     G, index, appearance_count = graph
                     if "retriever" not in locals():
-                        retriever = Retriever(tree, G, index, appearance_count, load_nlp(), **configs["retriever"]["kwargs"])
+                        retriever = Retriever(tree, G, index, appearance_count, load_nlp(configs["extractor"]["language"], configs["extractor"]["method"]), **configs["retriever"]["kwargs"])
                     else:
                         retriever.update(tree, G, index, appearance_count)
                     res = []

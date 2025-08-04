@@ -1,25 +1,24 @@
 import os
 from typing import List
 import json
-import spacy
+import spacy, nltk
 import networkx as nx
 from itertools import combinations
 from typing import List, Tuple, Literal
 import time
 
-def load_nlp(language:str="en", method: Literal["Spacy"]="Spacy"):
+def load_nlp(language:str="en", method: Literal["Spacy", "NLTK"]="Spacy"):
     if method == "Spacy":
         nlp = SpacyExtractor(language)
     elif method == "NLTK":
         nlp = NLTKExtractor(language)
-    else:
-        raise ValueError("Invalid method: {}".format(method))
     return nlp
         
 class Extractor:
     def __init__(self, language):
         self.language = language
         self.nlp = self.load_model(self, language)
+        self.method = "Extractor"
     
     def load_model(self, language):
         raise NotImplementedError("Subclass must implement the load_model method.")
@@ -34,6 +33,7 @@ class SpacyExtractor(Extractor):
     def __init__(self, language:str="en"):
         super().__init__(language)
         self.nlp = self.load_model(self, language)
+        self.method = "Spacy"
     
     def load_model(self, language):
         if language == "en":
@@ -124,12 +124,93 @@ class NLTKExtractor(Extractor):
     def __init__(self, language:str="en"):
         super().__init__(language)
         self.nlp = self.load_model(self, language)
+        self.method = "NLTK"
     
     def load_model(self, language):
-        raise NotImplemented
+        nltk.download('punkt')
+        # For the POS tagging.
+        nltk.download('averaged_perceptron_tagger')
+        # For the NER.
+        nltk.download('maxent_ne_chunker')
+        nltk.download('words')
 
     def naive_extract_graph(self, text: str):
-        raise NotImplemented
+        sentences = nltk.tokenize.sent_tokenize(text)
+
+        # noun pairs provide the edge.
+        noun_pairs = {}
+
+        # all_nouns saving the nodes.
+        all_nouns = set()
+
+        # process the name like John Brown
+        double_nouns = {}
+        appearance_count = {}
+
+        for sentence in sentences:
+            tokens = nltk.word_tokenize(sentence)
+            tagged_tokens = nltk.pos_tag(tokens)
+            
+            # Extract named entities using NLTK's NER
+            ne_tree = nltk.ne_chunk(tagged_tokens)
+            
+            sentence_terms = []
+            ent_positions = set()
+            
+            # Process named entities
+            for chunk in ne_tree:
+                if hasattr(chunk, 'label'):
+                    if chunk.label() == 'PERSON':
+                        # handle the name like John Brown, John Brown Smith.
+                        name_parts = [word for word, pos in chunk.leaves()]
+                        if len(name_parts) >= 2:
+                            for name in name_parts:
+                                double_nouns[name] = name_parts
+                            sentence_terms.extend(name_parts)
+                            for name in name_parts:
+                                appearance_count[name] = appearance_count.get(name, 0) + 1
+                        else:
+                            sentence_terms.append(' '.join(name_parts))
+                            appearance_count[' '.join(name_parts)] = appearance_count.get(' '.join(name_parts), 0) + 1
+                    
+                    # process the organization or country.
+                    elif chunk.label() in ["ORGANIZATION", "GPE"]:
+                        entity_text = ' '.join([word for word, pos in chunk.leaves()])
+                        sentence_terms.append(entity_text)
+                        appearance_count[entity_text] = appearance_count.get(entity_text, 0) + 1
+                    
+                    # Mark entity positions to avoid double counting
+                    for word, pos in chunk.leaves():
+                        ent_positions.add(word)
+            
+            # Process regular nouns and proper nouns
+            for word, pos in tagged_tokens:
+                if word in ent_positions:
+                    continue
+                if pos.startswith('NN') and word.strip():
+                    # Convert to lowercase for common nouns, keep proper nouns as is
+                    if pos == 'NN' or pos == 'NNS':
+                        sentence_terms.append(word.lower())
+                        appearance_count[word.lower()] = appearance_count.get(word.lower(), 0) + 1
+                    elif pos == 'NNP' or pos == 'NNPS':
+                        sentence_terms.append(word)
+                        appearance_count[word] = appearance_count.get(word, 0) + 1
+            
+            all_nouns.update(sentence_terms)
+            
+            # Count the cooccurrence of terms
+            for i in range(len(sentence_terms)):
+                for j in range(i+1, len(sentence_terms)):
+                    term1, term2 = sorted([sentence_terms[i], sentence_terms[j]])
+                    pair = (term1, term2)
+                    noun_pairs[pair] = noun_pairs.get(pair, 0) + 1
+        
+        return {
+            "nouns": list(all_nouns),
+            "cooccurrence": noun_pairs,
+            "double_nouns": double_nouns,
+            "appearance_count": appearance_count
+        }
 
 def build_graph(triplets: List[Tuple[str, str, int]]) -> nx.Graph:
     '''
@@ -178,12 +259,12 @@ def save_appearance_count(result, cache_path:str):
     
 def extract_graph(text:List[str], cache_folder:str, nlp:Extractor, use_cache=True, reextract=False):
     extract_start_time = time.time()
-    if use_cache and os.path.exists(os.path.join(cache_folder, "graph.json")) and os.path.exists(os.path.join(cache_folder, "index.json")) and os.path.exists(os.path.join(cache_folder, "appearance_count.json")):
+    if use_cache and os.path.exists(os.path.join(cache_folder, f"graph_{nlp.method}.json")) and os.path.exists(os.path.join(cache_folder, f"index_{nlp.method}.json")) and os.path.exists(os.path.join(cache_folder, f"appearance_count_{nlp.method}.json")):
         return load_cache(cache_folder), -1
     else:
-        graph_file_path = os.path.join(cache_folder, "graph.json")
-        index_file_path = os.path.join(cache_folder, "index.json")
-        appearance_count_file_path = os.path.join(cache_folder, "appearance_count.json")
+        graph_file_path = os.path.join(cache_folder, f"graph_{nlp.method}.json")
+        index_file_path = os.path.join(cache_folder, f"index_{nlp.method}.json")
+        appearance_count_file_path = os.path.join(cache_folder, f"appearance_count_{nlp.method}.json")
         edges = []
         index = {}
         appearance_count = {}

@@ -47,13 +47,13 @@ def build_tree_task(args):
         clean_cuda_memory(device_id)
 
 def extract_graph_task(args):
-    text, cache_folder, language = args
-    if os.path.exists(os.path.join(cache_folder, "graph.json")):
+    text, cache_folder, language, method, force_reextract = args
+    if os.path.exists(os.path.join(cache_folder, f"graph_{method}.json")) and not force_reextract:
         return load_cache(cache_folder), -1
     try:
         # Load NLP model in subprocess
-        nlp = load_nlp(language)
-        (result, index, count), time_cost = extract_graph(text, cache_folder, nlp)
+        nlp = load_nlp(language, method)
+        (result, index, count), time_cost = extract_graph(text, cache_folder, nlp, use_cache=not force_reextract, reextract=force_reextract)
         print(f"extract graph task result type: {type(result)}")
         print(f"extract graph task time cost: {time_cost}, -1 means load from cache.")
         return (result, index, count), time_cost
