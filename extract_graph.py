@@ -25,7 +25,7 @@ class Extractor:
         self.nlp = self.load_model(language)
         self.method = "Extractor"
     
-    def load_model(self, language):
+    def load_model(self):
         raise NotImplementedError("Subclass must implement the load_model method.")
 
     def __call__(self, text:str):
@@ -132,21 +132,20 @@ class NLTKExtractor(Extractor):
         super().__init__(language)
         self.nlp = self.load_model(language)
         self.method = "NLTK"
-    
-    @classmethod
-    def ensure_initialized(cls):
+
+    def load_model(self, language):
         """
         The core logic that performs the one-time, thread-safe initialization.
         This method contains your original code, adapted for this pattern.
         """
         # 1. Fast, lock-free check. If already initialized, do nothing.
-        if cls._nltk_initialized:
+        if NLTKExtractor._nltk_initialized:
             return
         # 2. If not initialized, acquire lock to prevent race conditions
-        with cls._nltk_init_lock:
+        with NLTKExtractor._nltk_init_lock:
             # 3. Double-check after acquiring the lock, in case another thread finished
             #    while this one was waiting.
-            if cls._nltk_initialized:
+            if NLTKExtractor._nltk_initialized:
                 return
             
             logger.info("="*10)
@@ -185,6 +184,7 @@ class NLTKExtractor(Extractor):
                 logger.info("All required NLTK packages are ready.")
             else:
                 logger.info("Some packages are missing, now downloading...")
+            NLTKExtractor._nltk_initialized = True
             return None
 
     def naive_extract_graph(self, text: str):
@@ -344,9 +344,6 @@ def extract_graph(text:List[str], cache_folder:str, nlp:Extractor, use_cache=Tru
 
         # build the graph.
         G = build_graph(edges)
-        if reextract == True:
-            save_appearance_count(appearance_count, appearance_count_file_path)
-            return (G, index, appearance_count), -1
         # save the graph and index.
         save_graph(edges, graph_file_path)
         save_index(index, index_file_path)
