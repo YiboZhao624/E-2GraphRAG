@@ -326,7 +326,7 @@ class Retriever:
             count += len(chunk_ids)
         return count
 
-    def entityaware_filter(self, candidate_chunks:Dict[str, List[str]], entities:List[str]) -> Dict[str, List[str]]:
+    def entityaware_filter(self, candidate_chunks:Dict[str, List[str]], entities:List[str], top_k: int) -> Dict[str, List[str]]:
         # filter rules:
         # 1. the chunk includes more different entities, the priority is higher.
         # 2. if the chunk has longer neighbor nodes, the priority is higher.
@@ -350,13 +350,13 @@ class Retriever:
                 chunks_info.append(chunk_id_info)
         # sort the chunks_info by the key_count, neighbor_nodes_count, and entity_count.
         sorted_chunks_info = sorted(chunks_info, key=lambda x: (x["key_count"], x["neighbor_nodes_count"], x["entity_count"]), reverse=True)
-        # get the top 25 chunks.
-        top_25_chunks = sorted_chunks_info[:25]
-        # get the chunk_ids from the top_25_chunks.
-        top_25_chunk_ids = [chunk["chunk_id"] for chunk in top_25_chunks]
+        # get the top k chunks.
+        top_k_chunks = sorted_chunks_info[:top_k]
+        # get the chunk_ids from the top_k_chunks.
+        top_k_chunk_ids = [chunk["chunk_id"] for chunk in top_k_chunks]
         # return the result.
         filtered_res = {}
-        for id in top_25_chunk_ids:
+        for id in top_k_chunk_ids:
             for entity in entities:
                 if id in self.index.get(entity, []):
                     filtered_res.setdefault(entity, []).append(id)
@@ -387,7 +387,7 @@ class Retriever:
         
         return entity_count
 
-    def occurrence_ranking(self, candidate_chunk_ids:List[str], entities:List[str]) -> Dict[str, List[str]]:
+    def occurrence_ranking(self, candidate_chunk_ids:List[str], entities:List[str], top_k: int) -> Dict[str, List[str]]:
         # occurrence ranking.
         filtered_res = {}
         filtered_chunk_ids = []
@@ -408,13 +408,13 @@ class Retriever:
         nonzero_indices = np.nonzero(chunk_count)[0]
         
         if len(nonzero_indices) == 0:
-            return {"": candidate_chunk_ids[:25]}
+            return {"": candidate_chunk_ids[:top_k]}
         
         argsorted_chunk_ids = np.argsort(chunk_count)[::-1]
         filtered_chunk_ids = [candidate_chunk_ids[i] for i in argsorted_chunk_ids if chunk_count[i] > 0]
         
-        if len(filtered_chunk_ids) > 25:
-            filtered_chunk_ids = filtered_chunk_ids[:25]
+        if len(filtered_chunk_ids) > top_k:
+            filtered_chunk_ids = filtered_chunk_ids[:top_k]
         
         for id in filtered_chunk_ids:
             for entity in entities:
@@ -462,13 +462,13 @@ class Retriever:
             _, condidate_chunks_indexs = self.faiss_index.search(query_embed, k = kwargs.get("max_chunk_setting", 25)*2)
             condidate_chunks_indexs = condidate_chunks_indexs[0]
             condidate_chunk_ids = [self.collapse_tree_ids[i] for i in condidate_chunks_indexs]
-            filtered_chunk_ids = self.occurrence_ranking(condidate_chunk_ids, entities) 
+            filtered_chunk_ids = self.occurrence_ranking(condidate_chunk_ids, entities, kwargs.get("max_chunk_setting", 25)) 
             # return the entity_entityB: [chunk_id1, chunk_id2, ...]
             res_str = self.format_res(filtered_chunk_ids)
 
             result = {"chunks":res_str}
             if kwargs.get("debug", True):
-                supplement_info = self._build_supplement_info(filtered_chunk_ids, entities, filtered_chunk_ids, list(filtered_chunk_ids.keys()), 25, chunk_counts_history)
+                supplement_info = self._build_supplement_info(filtered_chunk_ids, entities, filtered_chunk_ids, list(filtered_chunk_ids.keys()), kwargs.get("max_chunk_setting", 25), chunk_counts_history)
                 result.update(supplement_info)
                 result["retrieval_type"] = "Occurrence Rerank"
             return result
@@ -499,7 +499,7 @@ class Retriever:
         else:
             # the previous local result is not empty, so we can use it as candidate chunks.
             candidate_chunks = prev_local_res
-            res_ids = self.entityaware_filter(candidate_chunks, entities)
+            res_ids = self.entityaware_filter(candidate_chunks, entities, kwargs.get("max_chunk_setting", 25))
             chunk_count = self._count_chunks(res_ids)
             res_str = self.format_res(res_ids)
             result = {"chunks":res_str}
