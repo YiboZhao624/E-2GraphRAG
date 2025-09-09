@@ -1,6 +1,7 @@
 import os
+import torch
 from typing import List
-import json
+import json, re
 import spacy, nltk
 import networkx as nx
 from itertools import combinations
@@ -8,15 +9,18 @@ from typing import List, Tuple, Literal
 import time
 import logging
 import threading
+from transformers import pipeline, AutoTokenizer, AutoModelForTokenClassification
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
 
-def load_nlp(language:str="en", method: Literal["Spacy", "NLTK"]="Spacy"):
+def load_nlp(language:str="en", method: Literal["Spacy", "NLTK","BERT_NER_POS"]="Spacy"):
     if method == "Spacy":
         nlp = SpacyExtractor(language)
     elif method == "NLTK":
         nlp = NLTKExtractor(language)
+    elif method == "BERT_NER_POS":
+        nlp = BERTExtractor(language)
     return nlp
         
 class Extractor:
@@ -265,6 +269,133 @@ class NLTKExtractor(Extractor):
             "appearance_count": appearance_count
         }
 
+class BERTExtractor(Extractor):
+    """
+    使用BERT模型进行命名实体识别（NER）和词性标注（POS）以提取名词的提取器。
+    """
+    def __init__(self, language: str = "en", ner_model_name = "./models/ner", pos_model_name = "./models/pos"):
+        """
+        初始化BERTExtractor。
+
+        Args:
+            language (str): 语言, 当前实现主要支持 'en'。
+        """
+        self.ner_model_name = ner_model_name
+        self.pos_model_name = pos_model_name
+        self.tokenizer = AutoTokenizer.from_pretrained(self.ner_model_name)
+        super().__init__(language)
+        self.nlp_pipelines = self.load_model(language)
+        self.method = "BERT_NER_POS"
+
+    def load_model(self, language):
+        """
+        load the BERT model and tokenizer for NER and POS.
+
+        Returns:
+            A dictionary containing the NER and POS transformer pipelines.
+        """
+        if language != "en":
+            logger.warning(f"The current BERT models are primarily for English. Performance may vary.")
+
+        try:
+            device = 0 if torch.cuda.is_available() else -1
+            
+            # NER pipeline
+            ner_pipeline = pipeline(
+                "ner",
+                model=self.ner_model_name,
+                tokenizer=self.ner_model_name,
+                device=device,
+                grouped_entities=True
+            )
+            logger.info(f"BERT NER model '{self.ner_model_name}' loaded successfully.")
+            
+            # POS pipeline
+            pos_pipeline = pipeline(
+                "token-classification",
+                model=self.pos_model_name,
+                tokenizer=self.pos_model_name,
+                device=device,
+                aggregation_strategy="simple" # Groups sub-tokens (e.g., 'engineer', '##ing')
+            )
+            logger.info(f"BERT POS model '{self.pos_model_name}' loaded successfully.")
+
+            return {"ner": ner_pipeline, "pos": pos_pipeline}
+        except Exception as e:
+            logger.error(f"Failed to load BERT models: {e}")
+            raise
+
+    def __call__(self, text: str):
+        """
+        use the BERT model to process the text to extract entities and nouns.
+        """
+        return self.naive_extract_graph(text)
+
+    def naive_extract_graph(self, text: str):
+        """
+        extract the entities and nouns (as the nodes of the graph) and their cooccurrence relations (as the edges of the graph) from the text.
+        because the bert model only process the text within 512 tokens, we split the chunks into smaller sub-chunks and then aggregate the results.
+        """
+        # aggregate the results.
+        all_terms = set()
+        appearance_count = {}
+
+        # --- 新增的文本切分逻辑 ---
+        max_length = 480  # 设置一个保守的长度，给特殊符号留出空间
+        overlap = 50      # 设置重叠大小，以保持上下文连续性
+
+        inputs = self.tokenizer(text, return_tensors="pt", add_special_tokens=False)
+        input_ids = inputs['input_ids'][0]
+
+        sub_chunks = []
+        start = 0
+        # 使用滑动窗口切分input_ids
+        while start < len(input_ids):
+            end = start + max_length
+            sub_chunk_ids = input_ids[start:end]
+            # 将切分后的token ids解码回文本
+            sub_chunk_text = self.tokenizer.decode(sub_chunk_ids, skip_special_tokens=True)
+            sub_chunks.append(sub_chunk_text)
+            if end >= len(input_ids):
+                break
+            start += max_length - overlap
+
+        # --- 对每个子块进行分析并合并结果 ---
+        for sub_chunk in sub_chunks:
+            ner_results = self.nlp['ner'](sub_chunk)
+            pos_results = self.nlp['pos'](sub_chunk)
+
+            for entity in ner_results:
+                all_terms.add(entity['word'].strip())
+
+            for token in pos_results:
+                if token['entity_group'] in ['NOUN', 'PROPN']:
+                    all_terms.add(token['word'].strip())
+
+        noun_pairs = {}
+        sentences = nltk.sent_tokenize(text) # 使用原始文本进行句子分割
+
+        for sentence in sentences:
+            sentence_terms = set()
+            for term in all_terms:
+                if re.search(r'\b' + re.escape(term) + r'\b', sentence, re.IGNORECASE):
+                    sentence_terms.add(term)
+                    appearance_count[term] = appearance_count.get(term, 0) + 1
+            
+            # Count the cooccurrence of terms
+            if len(sentence_terms) > 1:
+                for pair in combinations(sorted(list(sentence_terms)), 2):
+                    key = tuple(pair)
+                    noun_pairs[key] = noun_pairs.get(key, 0) + 1
+
+        return {
+            "nouns": list(all_terms),
+            "cooccurrence": noun_pairs,
+            "double_nouns": {},
+            "appearance_count": appearance_count
+        }
+
+
 def build_graph(triplets: List[Tuple[str, str, int]]) -> nx.Graph:
     '''
     build the graph from the triplets, merging weights of duplicate edges
@@ -351,15 +482,24 @@ def extract_graph(text:List[str], cache_folder:str, nlp:Extractor, use_cache=Tru
         extract_end_time = time.time()
         return (G, index, appearance_count), extract_end_time - extract_start_time
 
-if __name__ == "__main__":
-    edges = [
-        ('a', 'b', 1),
-        ('a', 'b', 3),
-        ('b', 'a', 2)
-    ]
-    
-    G = build_graph(edges)
-    
-    # 打印所有边的权重
-    for u, v, w in G.edges(data='weight'):
-        logger.info(f"Edge ({u}, {v}): weight = {w}")  # 应该输出: Edge (a, b): weight = 6
+if __name__ == '__main__':
+    bert_extractor = BERTExtractor()
+
+    sample_text = (
+        "John Doe, a software engineer at Google, visited New York last week. "
+        "He met with Jane Smith from Microsoft to discuss a potential partnership. "
+        "The meeting took place in the Empire State Building."
+    )
+
+    graph_info = bert_extractor(sample_text)
+
+    import json
+    print("Extracted Information:")
+    print(graph_info)
+
+    print("\nNouns (Entities and Common Nouns):")
+    print(sorted(graph_info['nouns']))
+
+    print("\nCo-occurrence Pairs:")
+    for pair, weight in graph_info['cooccurrence'].items():
+        print(f"- {pair}: {weight} time(s)")
