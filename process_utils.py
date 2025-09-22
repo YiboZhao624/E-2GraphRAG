@@ -53,7 +53,7 @@ def build_tree_task(args):
 def extract_graph_task(args):
     text, cache_folder, language, method, force_reextract = args
     if os.path.exists(os.path.join(cache_folder, f"graph_{method}.json")) and not force_reextract:
-        return load_cache(cache_folder), -1
+        return load_cache(cache_folder, method), -1
     try:
         # Load NLP model in subprocess
         nlp = load_nlp(language, method)
