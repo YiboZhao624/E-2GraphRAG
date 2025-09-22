@@ -419,10 +419,10 @@ def build_graph(triplets: List[Tuple[str, str, int]]) -> nx.Graph:
     
     return G
 
-def load_cache(cache_path:str):
-    graph_file_path = os.path.join(cache_path, "graph.json")
-    index_file_path = os.path.join(cache_path, "index.json")
-    appearance_count_file_path = os.path.join(cache_path, "appearance_count.json")
+def load_cache(cache_path:str, method_name:str):
+    graph_file_path = os.path.join(cache_path, f"graph_{method_name}.json")
+    index_file_path = os.path.join(cache_path, f"index_{method_name}.json")
+    appearance_count_file_path = os.path.join(cache_path, f"appearance_count_{method_name}.json")
     edges = json.load(open(graph_file_path, "r"))
     index = json.load(open(index_file_path, "r"))
     appearance_count = json.load(open(appearance_count_file_path, "r"))
@@ -444,7 +444,8 @@ def save_appearance_count(result, cache_path:str):
 def extract_graph(text:List[str], cache_folder:str, nlp:Extractor, use_cache=True, reextract=False):
     extract_start_time = time.time()
     if use_cache and os.path.exists(os.path.join(cache_folder, f"graph_{nlp.method}.json")) and os.path.exists(os.path.join(cache_folder, f"index_{nlp.method}.json")) and os.path.exists(os.path.join(cache_folder, f"appearance_count_{nlp.method}.json")):
-        return load_cache(cache_folder), -1
+        method_name = nlp.method
+        return load_cache(cache_folder, method_name), -1
     else:
         graph_file_path = os.path.join(cache_folder, f"graph_{nlp.method}.json")
         index_file_path = os.path.join(cache_folder, f"index_{nlp.method}.json")
