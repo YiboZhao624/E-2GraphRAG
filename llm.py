@@ -103,4 +103,5 @@ class TransformerLLM(LLM):
         super().__init__(config)
         self.device = config.device
         self.model_name = config.model_name
-        self.tokenizer = 
+        self.tokenizer = AutoTokenizer(self.model_name)
+        self.model = AutoModel(self.model_name)
