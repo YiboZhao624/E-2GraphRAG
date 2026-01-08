@@ -1,10 +1,10 @@
 from typing import List
 import json
 import os
-from transformers import AutoTokenizer, pipeline
+from transformers import AutoTokenizer
 from prompt_dict import Prompts
-from utils import sequential_split, Timer
 import time
+from llm_providers import BaseLLM
 
 def sequential_merge(chunks:List[str], 
                      tokenizer:AutoTokenizer,
@@ -32,7 +32,7 @@ def load_cache_summary(cache_path:str)->List[str]:
     with open(cache_path, "r") as f:
         return json.load(f)
 
-def summarize_leaf(text:str, llm:pipeline, language:str)->List[str]:
+def summarize_leaf(text: str, llm: BaseLLM, language: str) -> str:
     '''
     Summarize the text into chunks.
     '''
@@ -40,10 +40,10 @@ def summarize_leaf(text:str, llm:pipeline, language:str)->List[str]:
         prompt = Prompts["summarize_details"].format(content=text)
     else:
         prompt = Prompts["summarize_details_zh"].format(content=text)
-    res = llm(prompt)[0]["generated_text"][len(prompt):]
+    res = llm.generate(prompt).text
     return res
 
-def summarize_summary(text:str, llm:pipeline, language:str)->List[str]:
+def summarize_summary(text: str, llm: BaseLLM, language: str) -> str:
     '''
     Summarize the summary into chunks.
     '''
@@ -51,11 +51,19 @@ def summarize_summary(text:str, llm:pipeline, language:str)->List[str]:
         prompt = Prompts["summarize_summary"].format(summary=text)
     else:
         prompt = Prompts["summarize_summary_zh"].format(summary=text)
-    res = llm(prompt)[0]["generated_text"][len(prompt):]
+    res = llm.generate(prompt).text
     return res
 
-def build_tree(text_chunks:List[str], llm:pipeline, cache_folder:str,
-               tokenizer:AutoTokenizer, length:int, overlap:int, merge_num:int, language:str):
+def build_tree(
+    text_chunks: List[str],
+    llm: BaseLLM,
+    cache_folder: str,
+    tokenizer: AutoTokenizer,
+    length: int,
+    overlap: int,
+    merge_num: int,
+    language: str,
+):
     '''
     Build the tree from the text.
     '''

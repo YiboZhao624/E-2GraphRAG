@@ -3,12 +3,11 @@ from extract_graph import load_nlp
 from utils import Timer, sequential_split, logger
 import yaml
 import torch
-from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer
 from query import Retriever
 from prompt_dict import Prompts
 import os
 import json
-import numpy as np
 import traceback
 import sys
 import argparse
@@ -17,6 +16,7 @@ from process_utils import build_tree_task, extract_graph_task, clean_cuda_memory
 import gc
 from datetime import datetime
 from utils import load_dataset
+from llm_providers import create_llm
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -37,15 +37,13 @@ def parallel_build_extract(text, configs, cache_folder, length, overlap, merge_n
                 logger.info("Starting parallel processing...")
                
                 build_args = (
-                    configs["llm"]["llm_path"],
-                    configs["llm"]["llm_device"],
+                    configs["llm"],
                     text,
                     cache_folder,
-                    configs["llm"]["llm_path"],
+                    configs["llm"].get("tokenizer_name", configs["llm"]["llm_path"]),
                     length,
                     overlap,
                     merge_num,
-                    torch.float16,
                     configs.get("language", "en")
                 )
                 
@@ -113,7 +111,9 @@ def main():
         dataset = load_dataset(configs["dataset"]["dataset_name"], configs["dataset"]["dataset_path"])
 
         # Load tokenizer for text splitting
-        tokenizer = AutoTokenizer.from_pretrained(configs["llm"]["llm_path"])
+        tokenizer = AutoTokenizer.from_pretrained(
+            configs["llm"].get("tokenizer_name", configs["llm"]["llm_path"])
+        )
 
         try:
             for i, data_piece in enumerate(dataset):
@@ -126,6 +126,9 @@ def main():
                 elif configs.get("split_method", "sequential") == "nn":
                     logger.info("split_method: nn")
                     text = text.split("\n\n")
+                elif configs.get("split_method", "sequential") == "manual":
+                    logger.info("split_method: manual")
+                    text = text.split("####")
                 qa = data_piece["qa"]
                 
                 piece_name = dataset.available_ids[i]
@@ -140,27 +143,9 @@ def main():
                     configs["cluster"]["merge_num"]
                 )
                 
-                # Load model for QA
-                if configs["dataset"]["dataset_name"] == "NovelQA" or configs["dataset"]["dataset_name"] == "InfiniteChoice":
-                    if "Qwen2" in configs["llm"]["llm_path"]:
-                        from transformers import Qwen2ForCausalLM
-                        llm = Qwen2ForCausalLM.from_pretrained(
-                            configs["llm"]["llm_path"],
-                            torch_dtype=torch.bfloat16,
-                            low_cpu_mem_usage=True
-                        )
-                    else:
-                        llm = AutoModelForCausalLM.from_pretrained(
-                            configs["llm"]["llm_path"],
-                            torch_dtype=torch.bfloat16
-                        )
-                    llm.eval()
-                    llm.to(configs["llm"]["llm_device"])
-                elif configs["dataset"]["dataset_name"] == "InfiniteQALoader" :
-                    llm = pipeline("text-generation", model=configs["llm"]["llm_path"], tokenizer=tokenizer, device=configs["llm"]["llm_device"])
-                else:
-                    raise ValueError("Invalid dataset")
-                
+                # Load model for QA using unified backend
+                llm = create_llm(configs["llm"])
+
                 try:
                     # Process QA
                     G, index, appearance_count = graph
@@ -193,45 +178,33 @@ def main():
                             logger.error(traceback.format_exc())
                             raise e
 
-                        if configs["dataset"]["dataset_name"] == "NovelQA" or configs["dataset"]["dataset_name"] == "InfiniteChoice":
-                            input_text = Prompts["QA_prompt_options"].format(question = question,evidence = evidences)
+                        if configs["dataset"]["dataset_name"] in ("NovelQA", "InfiniteChoice"):
+                            input_text = Prompts["QA_prompt_options"].format(
+                                question=question, evidence=evidences
+                            )
                             try:
-                                inputs = tokenizer(input_text, return_tensors="pt").to(configs["llm"]["llm_device"])
-                                with torch.no_grad():
-                                    logger.info(f"inputs token length: {inputs.input_ids.shape[-1]}")
-                                    output_logits = llm(**inputs).logits[0,-1]
-                            except Exception as e:
-                                logger.error(f"Error occurred: {e}")
-                                logger.error("traceback:")
-                                logger.error(traceback.format_exc())
+                                option_scores = llm.predict_options(
+                                    input_text, ["A", "B", "C", "D"]
+                                )
+                                output_text = max(option_scores, key=option_scores.get)
+                            except NotImplementedError as e:
+                                logger.error(
+                                    "Selected LLM backend does not support option scoring."
+                                )
                                 raise e
-                            finally:
-                                clean_cuda_memory(device_id)
-                            probs = torch.nn.functional.softmax(
-                            torch.tensor([
-                                    output_logits[tokenizer("A").input_ids[-1]],
-                                    output_logits[tokenizer("B").input_ids[-1]],
-                                    output_logits[tokenizer("C").input_ids[-1]],
-                                    output_logits[tokenizer("D").input_ids[-1]],
-                                ]).float(),
-                                dim=0,
-                            ).detach().cpu().numpy()
-                            output_text = ["A", "B", "C", "D"][np.argmax(probs)]
-
-                        elif configs["dataset"]["dataset_name"] == "InfiniteQALoader":
+                        else: # default as QA.
                             if configs.get("language", "en") == "zh":
-                                input_text = Prompts["QA_prompt_answer_zh"].format(question = question,
-                                                        evidence = model_supplement)
+                                input_text = Prompts["QA_prompt_answer_zh"].format(
+                                    question=question, evidence=model_supplement
+                                )
                             else:
-                                input_text = Prompts["QA_prompt_answer"].format(question = question,
-                                                        evidence = model_supplement)
+                                input_text = Prompts["QA_prompt_answer"].format(
+                                    question=question, evidence=model_supplement
+                                )
                             logger.info(f"input_text: {len(input_text)}")
-                            output = llm(input_text, max_new_tokens = 300)
-                            output_text = output[0]["generated_text"]
-                            output_text = output_text[len(input_text):]
+                            output = llm.generate(input_text, max_new_tokens=300)
+                            output_text = output.text
                             logger.info(f"output_text: {output_text}")
-                        else:
-                            raise ValueError("Invalid dataset")
                         res.append({
                             "question": question,
                             "answer": answer,
@@ -253,12 +226,11 @@ def main():
                     logger.error(traceback.format_exc())
                     logger.error(f"TODO:Error occurred during book {i} processing. Set resumeIndex to {i}.")
                     raise e
-                finally:                    
-                    if 'llm' in locals():
+                finally:
+                    if "llm" in locals():
+                        llm.cleanup()
                         del llm
                         logger.info("llm deleted")
-                        torch.cuda.empty_cache()
-                        torch.cuda.synchronize()
                 
         except Exception as e:
             logger.error(f"Error occurred during dataset processing: {e}")
