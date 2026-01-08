@@ -1,26 +1,82 @@
 import os
-import torch
-from typing import List
-import json, re
-import spacy, nltk
-import networkx as nx
-from itertools import combinations
-from typing import List, Tuple, Literal
+import json
+import re
 import time
 import logging
 import threading
-from transformers import pipeline, AutoTokenizer, AutoModelForTokenClassification
+from itertools import combinations
+from typing import List, Tuple, Literal
+
+import networkx as nx
+
+
+def _get_spacy():
+    import spacy
+
+    return spacy
+
+
+def _get_spacy_cli():
+    import spacy
+
+    return spacy.cli
+
+
+def _get_nltk():
+    import nltk  # type: ignore
+
+    return nltk
+
+
+def _get_torch():
+    import torch
+
+    return torch
+
+
+def _get_transformers_pipeline():
+    from transformers import pipeline
+
+    return pipeline
+
+
+def _get_auto_tokenizer():
+    from transformers import AutoTokenizer
+
+    return AutoTokenizer
+
+
+def _get_hanlp():
+    import hanlp
+
+    return hanlp
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
 
-def load_nlp(language:str="en", method: Literal["Spacy", "NLTK","BERT_NER_POS"]="Spacy"):
+def load_nlp(
+    language: str = "en",
+    method: Literal["Spacy", "NLTK", "BERT_NER_POS", "HanLP"] = "Spacy",
+    **kwargs,
+):
     if method == "Spacy":
         nlp = SpacyExtractor(language)
     elif method == "NLTK":
         nlp = NLTKExtractor(language)
     elif method == "BERT_NER_POS":
-        nlp = BERTExtractor(language)
+        nlp = BERTExtractor(
+            language=language,
+            ner_model_name=kwargs.get("ner_model_name", "./models/ner"),
+            pos_model_name=kwargs.get("pos_model_name", "./models/pos"),
+        )
+    elif method == "HanLP":
+        nlp = HanLPExtractor(
+            language=language,
+            ner_model_path=kwargs.get("ner_model_path", "./models/ner"),
+            pos_model_path=kwargs.get("pos_model_path", "./models/pos"),
+            hanlp_root=kwargs.get("hanlp_root", "./hanlp"),
+            require_local=kwargs.get("hanlp_require_local", False),
+        )
     return nlp
         
 class Extractor:
@@ -32,8 +88,9 @@ class Extractor:
     def load_model(self):
         raise NotImplementedError("Subclass must implement the load_model method.")
 
-    def __call__(self, text:str):
-        raise NotImplementedError("Subclass must implement __call__ method")
+    def __call__(self, text: str):
+        # 默认调用 naive_extract_graph，子类可覆盖
+        return self.naive_extract_graph(text)
     
     def naive_extract_graph(self, text:str):
         raise NotImplementedError("Subclass must implement the naive_extract_graph method.")
@@ -45,19 +102,22 @@ class SpacyExtractor(Extractor):
         self.method = "Spacy"
     
     def load_model(self, language):
+        spacy = _get_spacy()
+        spacy_cli = _get_spacy_cli()
+
         if language == "en":
             try:
                 nlp = spacy.load("en_core_web_lg")
-            except:
+            except Exception:
                 logger.info("Downloading spacy model...")
-                spacy.cli.download("en_core_web_lg")
+                spacy_cli.download("en_core_web_lg")
                 nlp = spacy.load("en_core_web_lg")
         elif language == "zh":
             try:
                 nlp = spacy.load("en_core_web_lg")
-            except:
+            except Exception:
                 logger.info("Downloading spacy model...")
-                spacy.cli.download("en_core_web_lg")
+                spacy_cli.download("en_core_web_lg")
                 nlp = spacy.load("en_core_web_lg")
         return nlp
     
@@ -142,6 +202,7 @@ class NLTKExtractor(Extractor):
         The core logic that performs the one-time, thread-safe initialization.
         This method contains your original code, adapted for this pattern.
         """
+        nltk = _get_nltk()
         # 1. Fast, lock-free check. If already initialized, do nothing.
         if NLTKExtractor._nltk_initialized:
             return
@@ -192,6 +253,7 @@ class NLTKExtractor(Extractor):
             return None
 
     def naive_extract_graph(self, text: str):
+        nltk = _get_nltk()
         sentences = nltk.tokenize.sent_tokenize(text)
 
         # noun pairs provide the edge.
@@ -273,7 +335,7 @@ class BERTExtractor(Extractor):
     """
     使用BERT模型进行命名实体识别（NER）和词性标注（POS）以提取名词的提取器。
     """
-    def __init__(self, language: str = "en", ner_model_name = "./models/ner", pos_model_name = "./models/pos"):
+    def __init__(self, language: str = "en", ner_model_name="./models/ner", pos_model_name="./models/pos"):
         """
         初始化BERTExtractor。
 
@@ -282,9 +344,10 @@ class BERTExtractor(Extractor):
         """
         self.ner_model_name = ner_model_name
         self.pos_model_name = pos_model_name
+        AutoTokenizer = _get_auto_tokenizer()
         self.tokenizer = AutoTokenizer.from_pretrained(self.ner_model_name)
         super().__init__(language)
-        self.nlp_pipelines = self.load_model(language)
+        self.nlp_pipelines = self.nlp  # 兼容已有属性命名
         self.method = "BERT_NER_POS"
 
     def load_model(self, language):
@@ -298,10 +361,12 @@ class BERTExtractor(Extractor):
             logger.warning(f"The current BERT models are primarily for English. Performance may vary.")
 
         try:
+            torch = _get_torch()
+            transformers_pipeline = _get_transformers_pipeline()
             device = 0 if torch.cuda.is_available() else -1
             
             # NER pipeline
-            ner_pipeline = pipeline(
+            ner_pipeline = transformers_pipeline(
                 "ner",
                 model=self.ner_model_name,
                 tokenizer=self.ner_model_name,
@@ -311,7 +376,7 @@ class BERTExtractor(Extractor):
             logger.info(f"BERT NER model '{self.ner_model_name}' loaded successfully.")
             
             # POS pipeline
-            pos_pipeline = pipeline(
+            pos_pipeline = transformers_pipeline(
                 "token-classification",
                 model=self.pos_model_name,
                 tokenizer=self.pos_model_name,
@@ -336,6 +401,7 @@ class BERTExtractor(Extractor):
         extract the entities and nouns (as the nodes of the graph) and their cooccurrence relations (as the edges of the graph) from the text.
         because the bert model only process the text within 512 tokens, we split the chunks into smaller sub-chunks and then aggregate the results.
         """
+        nltk = _get_nltk()
         # aggregate the results.
         all_terms = set()
         appearance_count = {}
@@ -393,6 +459,164 @@ class BERTExtractor(Extractor):
             "cooccurrence": noun_pairs,
             "double_nouns": {},
             "appearance_count": appearance_count
+        }
+
+
+class HanLPExtractor(Extractor):
+    """
+    使用 HanLP 2.x 多任务模型（tok+pos+ner）进行中文实体/名词提取，避免 JVM 依赖。
+    """
+
+    def __init__(
+        self,
+        language: str = "zh",
+        ner_model_path: str | None = None,
+        pos_model_path: str | None = None,
+        hanlp_root: str | None = None,
+        require_local: bool | None = None,
+        min_len: int = 1,
+        min_freq: int = 1,
+    ):
+        # 参数保持兼容，但在 2.x 中不再需要 JVM 本地模型
+        self.ner_model_path = ner_model_path
+        self.pos_model_path = pos_model_path
+        self.hanlp_root = hanlp_root
+        self.require_local = require_local
+        self.min_len = min_len
+        self.min_freq = min_freq
+        super().__init__(language)
+        self.method = "HanLP"
+
+    def load_model(self, language):
+        # 默认使用 PyTorch 后端，避免 TensorFlow 兼容问题
+        os.environ.setdefault("HANLP_BACKEND", "torch")
+
+        hanlp = _get_hanlp()
+        try:
+            mtl = hanlp.load(hanlp.pretrained.mtl.CLOSE_TOK_POS_NER_SRL_DEP_SDP_CON_ELECTRA_SMALL_ZH)
+        except Exception as e:
+            logger.error(f"Failed to load HanLP 2.x models: {e}")
+            raise
+
+        return {"mtl": mtl}
+
+    def naive_extract_graph(self, text: str):
+        """
+        基于句子级共现统计实体/名词（HanLP 2.x 输出）。
+        """
+        noun_pairs = {}
+        all_terms = set()
+        appearance_count = {}
+        double_nouns = {}
+
+        # 句子划分（简单按中英文标点）
+        sentences = [s.strip() for s in re.split(r"[。！？!?]", text) if s.strip()]
+
+        def _ner_spans_to_texts(spans, sentence, tokens):
+            """将 ner span 转文本，兼容多种格式；优先按字符起止索引截取原句。"""
+            ents = []
+            for sp in spans:
+                if isinstance(sp, dict):
+                    if "text" in sp:
+                        ents.append(sp["text"])
+                        continue
+                    start = sp.get("start") if sp.get("start") is not None else sp.get("begin")
+                    end = sp.get("end") if sp.get("end") is not None else sp.get("finish")
+                elif isinstance(sp, (list, tuple)) and len(sp) >= 2:
+                    # 可能是 (text, label) 或 (start, end, label)
+                    if isinstance(sp[0], str) and not isinstance(sp[1], str):
+                        ents.append(sp[0])
+                        continue
+                    start, end = sp[0], sp[1]
+                else:
+                    continue
+                try:
+                    start_i, end_i = int(start), int(end)
+                    # HanLP mtl 的 ner/msra 返回字符级下标
+                    if 0 <= start_i < end_i <= len(sentence):
+                        ents.append(sentence[start_i:end_i])
+                    elif 0 <= start_i < end_i <= len(tokens):
+                        ents.append("".join(tokens[start_i:end_i]))
+                except Exception:
+                    continue
+            return ents
+
+        for sent in sentences:
+            mtl_out = self.nlp["mtl"](sent, tasks=["tok", "pos", "ner"])
+            # 兼容多种 key 命名（tok/tok/fine/tok/coarse、pos、ner/**）
+            def _get_first_list(prefix: str):
+                for k, v in mtl_out.items():
+                    if k.startswith(prefix) and isinstance(v, list):
+                        return v
+                return []
+
+            tokens = mtl_out.get("tok", []) or _get_first_list("tok")
+            pos_tags = mtl_out.get("pos", []) or _get_first_list("pos")
+            ner_spans = mtl_out.get("ner", []) or _get_first_list("ner")
+
+            # 若返回是[[...]]这种嵌套，取第一层展开
+            if tokens and isinstance(tokens[0], list):
+                tokens = tokens[0]
+            if pos_tags and isinstance(pos_tags[0], list):
+                pos_tags = pos_tags[0]
+            if ner_spans and isinstance(ner_spans[0], list):
+                ner_spans = ner_spans[0]
+
+            # DEBUG: 查看模型输出格式，便于排查单字/空结果
+            print(
+                "[DEBUG] mtl_out keys:", list(mtl_out.keys()),
+                "tok_sample:", tokens[:10],
+                "pos_sample:", pos_tags[:10],
+                "ner_sample:", ner_spans[:5],
+            )
+
+            sentence_terms = []
+
+            # 先收集 NER 实体
+            for ent_text in _ner_spans_to_texts(ner_spans, sent, tokens):
+                ent_text = ent_text.strip()
+                if not ent_text:
+                    continue
+                sentence_terms.append(ent_text)
+                appearance_count[ent_text] = appearance_count.get(ent_text, 0) + 1
+                all_terms.add(ent_text)
+
+            # 再收集名词/专有名词
+            for tok, pos_tag in zip(tokens, pos_tags):
+                if not isinstance(tok, str) or not isinstance(pos_tag, str):
+                    continue
+                tok_val = tok.strip()
+                pos_val = pos_tag.strip()
+                if not tok_val or not pos_val:
+                    continue
+
+                if pos_val.lower().startswith("n"):  # HanLP 2.x POS: NN/NR/NT... 大写
+                    sentence_terms.append(tok_val)
+                    appearance_count[tok_val] = appearance_count.get(tok_val, 0) + 1
+                    all_terms.add(tok_val)
+
+            # 去重后再统计共现，避免同词自环
+            filtered_terms = [t for t in sentence_terms if len(t) >= self.min_len]
+            unique_terms = list(set(filtered_terms))
+            for i in range(len(unique_terms)):
+                for j in range(i + 1, len(unique_terms)):
+                    term1, term2 = sorted([unique_terms[i], unique_terms[j]])
+                    if term1 == term2:
+                        continue
+                    pair = (term1, term2)
+                    noun_pairs[pair] = noun_pairs.get(pair, 0) + 1
+
+        kept_terms = {t for t, c in appearance_count.items() if len(t) >= self.min_len and c >= self.min_freq}
+        filtered_pairs = {
+            pair: w for pair, w in noun_pairs.items()
+            if pair[0] in kept_terms and pair[1] in kept_terms
+        }
+
+        return {
+            "nouns": list(kept_terms),
+            "cooccurrence": filtered_pairs,
+            "double_nouns": double_nouns,
+            "appearance_count": {t: c for t, c in appearance_count.items() if t in kept_terms},
         }
 
 
@@ -484,12 +708,27 @@ def extract_graph(text:List[str], cache_folder:str, nlp:Extractor, use_cache=Tru
         return (G, index, appearance_count), extract_end_time - extract_start_time
 
 if __name__ == '__main__':
-    bert_extractor = BERTExtractor()
+    bert_extractor = HanLPExtractor(language = "zh")
 
     sample_text = (
-        "John Doe, a software engineer at Google, visited New York last week. "
-        "He met with Jane Smith from Microsoft to discuss a potential partnership. "
-        "The meeting took place in the Empire State Building."
+        """
+        注册登录流程
+1.客户打开APP，判断是否已登录：
+是：进入2，展示【APP借款首页】
+否：展示【APP借款首页】，页面处于未登录状态，点击「立即申请」按钮后进入“ 注册/登录操作”
+2.判断客户是否为闪电贷预授信客户：
+是：点击「立即申请」按钮，进入“闪电贷预授信流程“
+否：进入3
+3.判断客户是否实名：
+是：进入4
+否：展示【APP借款首页】，点击「立即申请」按钮后进入“ 授信流程”
+4.判断客户是否为外部迁入客户：
+是：展示”外部迁入弹窗“，点击取消按钮，关闭弹窗展示【APP借款首页】；点击领取按钮，进入“ 外部迁入流程”
+否：进入5
+5.判断客户是否有额度：
+是：展示【APP借款首页】，页面上方产品卡模块展示客户授信申请审批通过的贷款产品和可借金额，可借金额根据“可借金额计算规则”展示。点击立即申请，客户可以进入“用款流程”申请借款
+否：展示【APP借款首页】，点击「立即申请」按钮后进入“ 授信流程”
+        """
     )
 
     graph_info = bert_extractor(sample_text)
