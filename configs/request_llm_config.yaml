@@ -1,0 +1,48 @@
+dataset:
+  dataset_name: InfiniteChoice                                  # 可选: InfiniteChoice | InfiniteQALoader | NovelQA
+  dataset_path: ./data/InfiniteBench/longbook_choice_eng.jsonl # 数据集路径
+
+llm:
+  type: requests                           # 使用 HTTP/requests 后端
+  llm_name: qwen3-32b                    # 发送给服务端的模型名，占位可改
+  llm_path: null                           # requests 模式下可留空
+  llm_device: cuda:5                          # 仅用于日志与缓存命名，无需真实 GPU
+  max_new_tokens: 1200
+  temperature: 0.7
+  top_p: 0.9
+  api_url: http://127.0.0.1:8001/v1/chat/completions   # OpenAI 兼容推理服务地址
+  chat_mode: chat                          # chat | completion，自动推断但可手动指定
+  api_headers:                             # 根据服务要求设置鉴权
+    Authorization: Bearer YOUR_API_KEY
+    Content-Type: application/json
+  request_kwargs:                          # requests.post 额外参数
+    timeout: 120
+
+paths:
+  log_path: ./log/request_llm_test        # 日志目录
+  answer_path: ./answer/request_llm_test  # 答案输出目录，程序会按数据集再分层
+  cache_path: ./cache/request_llm_test    # 缓存目录
+
+extractor:
+  language: "zh"   # 抽取器语言
+  method: "BERT_NER_POS"  # 抽取方法: Spacy/...
+
+cluster:
+  length: 1200     # 每段长度
+  overlap: 0     # 重叠长度
+  merge_num: 5     # 片段合并数量
+  force_Reextract: False  # 是否忽略已有缓存重新抽取
+
+resume:
+  resumeIndex: 0   # 从第几个样本继续
+
+retriever:
+  kwargs:
+    device: cuda:5                       # 检索使用的设备
+    shortest_path_k: 4
+    debug: False
+    merge_num: 5
+    overlap: 100
+    tokenizer: /mnt/shared-storage-gpfs2/gpfs2-shared-public/huggingface/hub/models--jinaai--jina-embeddings-v2-base-zh # 检索 tokenizer 路径
+    max_chunk_setting: 25
+

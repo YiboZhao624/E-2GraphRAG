@@ -8,3 +8,8 @@ cache/
 ans_log/
 old_code/
 baselines/
+
+# Data files - may contain sensitive/proprietary content, do not commit
+data/**
+!data/README.md
+!data/download.sh

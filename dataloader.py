@@ -163,6 +163,44 @@ class InfiniteChoiceLoader:
         return len(self.available_ids)
 
 
+class bank_loader:
+    def __init__(self, path):
+        self.dataset = self._initialize_dataset(path)
+        self.available_ids = [0]
+        
+    def _initialize_dataset(self, path):
+        dataset = {}
+        dataset["book"] = ""
+        dataset["qa"] = []
+        for filename in os.listdir(path):
+            if filename.endswith(".txt"):
+                with open(os.path.join(path, filename), "r") as infile:
+                    dataset["book"] += infile.read()
+            if filename.endswith(".json"):
+                with open(os.path.join(path, filename), "r") as infile:
+                    dataset["qa"] = json.load(infile)
+        return dataset
+    
+    def _format_qa(self, qa_list):
+        formatted_qa = []
+        for i, qa in enumerate(qa_list):
+            question = qa["question"]
+            answer = qa.get("answer", "")
+            ref_response = qa.get("ref_response", "")
+            formatted_qa.append({
+                "id": qa["id"],
+                "question": question,
+                "answer": answer,
+                "ref_response": ref_response
+            })
+        return formatted_qa
+
+    def __getitem__(self, index):
+        to_return = {}
+        to_return["book"] = self.dataset["book"]
+        to_return["qa"] = self._format_qa(self.dataset["qa"])
+        return to_return
+
 if __name__ == "__main__":
     loader = NovelQALoader("NovelQA")
     print(loader[0]["qa"][0])    

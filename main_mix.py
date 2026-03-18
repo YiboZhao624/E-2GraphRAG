@@ -4,7 +4,7 @@ from utils import Timer, sequential_split, logger
 import yaml
 import torch
 from transformers import AutoTokenizer
-from query import Retriever
+from query_mix import Retriever
 from prompt_dict import Prompts
 import os
 import json

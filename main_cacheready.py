@@ -2,17 +2,16 @@ import multiprocessing as mp
 from extract_graph import load_nlp
 from utils import sequential_split, load_dataset, load_tree_graph
 import yaml
-import torch
-from transformers import pipeline, AutoTokenizer, AutoModel
+from transformers import AutoTokenizer
 from query import Retriever
 from prompt_dict import Prompts
 import os
 import json
-import numpy as np
 import traceback
 import sys
 import argparse
 import time
+from llm_providers import create_llm
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -28,35 +27,17 @@ def main():
     print("please make sure the tree and graph are already built and saved in the cache folder.")
     # parse the arguments.
     configs = parse_args()
-    device_id = int(configs["llm"]["llm_device"].split(':')[1]) if ':' in configs["llm"]["llm_device"] else 0
-
     # load the dataset.
     dataset = load_dataset(configs["dataset"]["dataset_name"], configs["dataset"].get("dataset_path", None))
     print("dataset loaded!")
 
     # Load tokenizer for text splitting
-    tokenizer = AutoTokenizer.from_pretrained(configs["llm"]["llm_path"])
+    tokenizer = AutoTokenizer.from_pretrained(
+        configs["llm"].get("tokenizer_name", configs["llm"]["llm_path"])
+    )
 
     # Load model for QA
-    if configs["dataset"]["dataset_name"] == "NovelQA" or configs["dataset"]["dataset_name"] == "InfiniteChoice":
-        if "Qwen2" in configs["llm"]["llm_path"]:
-            from transformers import Qwen2ForCausalLM
-            llm = Qwen2ForCausalLM.from_pretrained(
-                configs["llm"]["llm_path"], 
-                torch_dtype=torch.bfloat16,
-                low_cpu_mem_usage=True
-            )
-        else:
-            llm = AutoModel.from_pretrained(
-                configs["llm"]["llm_path"],
-                torch_dtype=torch.bfloat16
-            )
-        llm.eval()
-        llm.to(configs["llm"]["llm_device"])
-    elif configs["dataset"]["dataset_name"] == "InfiniteQALoader":
-        llm = pipeline("text-generation", model=configs["llm"]["llm_path"], tokenizer=tokenizer, device=configs["llm"]["llm_device"])
-    else:
-        raise ValueError("Invalid dataset")
+    llm = create_llm(configs["llm"])
     print("llm loaded!")
     #########################################################
     ############## start the inference. #####################
@@ -121,31 +102,21 @@ def main():
                 retrieval_type = model_supplement.get("retrieval_type","Not_recorded.")
                 retrieval_chunk_count = model_supplement.get("len_chunks","Not_recorded.")
 
-                if configs["dataset"]["dataset_name"] == "NovelQA" or configs["dataset"]["dataset_name"] == "InfiniteChoice":
-                    input_text = Prompts["QA_prompt_options"].format(question = question,evidence = evidences)
-                
-                    inputs = tokenizer(input_text, return_tensors="pt").to(configs["llm"]["llm_device"])
-                    with torch.no_grad():
-                        print("inputs token length: ", inputs.input_ids.shape[-1])
-                        output_logits = llm(**inputs).logits[0,-1]
-            
-                    probs = torch.nn.functional.softmax(
-                    torch.tensor([
-                            output_logits[tokenizer("A").input_ids[-1]],
-                            output_logits[tokenizer("B").input_ids[-1]],
-                            output_logits[tokenizer("C").input_ids[-1]],
-                            output_logits[tokenizer("D").input_ids[-1]],
-                        ]).float(),
-                        dim=0,
-                    ).detach().cpu().numpy()
-                    output_text = ["A", "B", "C", "D"][np.argmax(probs)]
+                if configs["dataset"]["dataset_name"] in ("NovelQA", "InfiniteChoice"):
+                    input_text = Prompts["QA_prompt_options"].format(
+                        question=question, evidence=evidences
+                    )
+                    option_scores = llm.predict_options(
+                        input_text, ["A", "B", "C", "D"]
+                    )
+                    output_text = max(option_scores, key=option_scores.get)
 
                 elif configs["dataset"]["dataset_name"] == "InfiniteQALoader":
-                    input_text = Prompts["QA_prompt_answer"].format(question = question,
-                                                evidence = model_supplement)
-                    output = llm(input_text)
-                    output_text = output[0]["generated_text"]
-                    output_text = output_text[len(input_text):]
+                    input_text = Prompts["QA_prompt_answer"].format(
+                        question=question, evidence=model_supplement
+                    )
+                    output = llm.generate(input_text)
+                    output_text = output.text
                     print("output_text: ", output_text)
                 else:
                     raise ValueError("Invalid dataset")
@@ -176,9 +147,12 @@ def main():
             print(traceback.format_exc())
             print(f"TODO:Error occurred during book {i} processing. Set resumeIndex to {i}.")
             raise e
-            
     
-    
+    if "llm" in locals():
+        llm.cleanup()
+        del llm
+
+
 if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
     try:

@@ -267,7 +267,7 @@ class RequestsLLM(BaseLLM):
         headers: Optional[Dict[str, str]] = None,
         **kwargs,
     ) -> None:
-        max_new_tokens = kwargs.get("max_new_tokens", 512)
+        max_new_tokens = kwargs.get("max_new_tokens", 1024*12)
         temperature = kwargs.get("temperature", 0.7)
         top_p = kwargs.get("top_p", 0.9)
         super().__init__(max_new_tokens, temperature, top_p)
@@ -280,6 +280,8 @@ class RequestsLLM(BaseLLM):
         )
         # Allow passing default request kwargs (e.g., timeout) from config
         self.request_kwargs = kwargs.get("request_kwargs", {})
+        # batch size for list prompts (completion-style endpoints)
+        self.batch_size = kwargs.get("batch_size", 16)
 
     def generate(
         self, prompt: str, max_new_tokens: Optional[int] = None, **kwargs
@@ -291,7 +293,7 @@ class RequestsLLM(BaseLLM):
             payload = {
                 "model": kwargs.get("model") or self.model,
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": tokens,
+                "max_new_tokens": tokens,
                 "temperature": self.temperature,
                 "top_p": self.top_p,
             }
@@ -327,6 +329,73 @@ class RequestsLLM(BaseLLM):
             ) or choice.get("text")
         text = text or ""
         return GenerateResult(text=text, raw=data)
+
+    def generate_batch(
+        self, prompts: List[str], max_new_tokens: Optional[int] = None, **kwargs
+    ) -> List[GenerateResult]:
+        """
+        Batch generation for completion-style endpoints.
+        - 如果 chat_mode=chat，则逐条调用 generate（多数 OpenAI Chat API 不支持批量 messages）。
+        - 如果 chat_mode!=chat，尝试将 prompt 列表直接传给服务端；若服务端不支持，可在上层降级。
+        """
+        if not prompts:
+            return []
+        if self.chat_mode == "chat":
+            return [self.generate(p, max_new_tokens=max_new_tokens, **kwargs) for p in prompts]
+
+        requests = _get_requests()
+        tokens = max_new_tokens or self.max_new_tokens
+        out: List[GenerateResult] = []
+
+        # 分批提交，避免 payload 过大
+        for i in range(0, len(prompts), self.batch_size):
+            batch = prompts[i : i + self.batch_size]
+            payload = {
+                "prompt": batch,
+                "max_tokens": tokens,
+                "max_new_tokens": tokens,
+                "temperature": self.temperature,
+                "top_p": self.top_p,
+            }
+            extra_payload = kwargs.get("extra_payload", {})
+            payload.update(extra_payload)
+            request_opts = {**self.request_kwargs, **kwargs.get("request_kwargs", {})}
+            response = requests.post(
+                self.api_url,
+                json=payload,
+                headers=self.headers,
+                **request_opts,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            texts: List[str] = []
+            if isinstance(data, dict):
+                if isinstance(data.get("text"), list):
+                    texts = data["text"]
+                elif isinstance(data.get("generated_text"), list):
+                    texts = data["generated_text"]
+                elif isinstance(data.get("choices"), list):
+                    for choice in data["choices"]:
+                        txt = (
+                            choice.get("message", {}).get("content")
+                            if isinstance(choice, dict)
+                            else None
+                        ) or (choice.get("text") if isinstance(choice, dict) else None)
+                        if txt is not None:
+                            texts.append(txt)
+            if not texts and isinstance(data, list):
+                # 兼容部分服务直接返回文本列表
+                texts = [str(x) for x in data]
+
+            # 回填数量对齐
+            if texts and len(texts) == len(batch):
+                out.extend([GenerateResult(text=t or "", raw=data) for t in texts])
+            else:
+                # 不支持批量或返回不匹配时，逐条降级
+                for p in batch:
+                    out.append(self.generate(p, max_new_tokens=max_new_tokens, **kwargs))
+        return out
 
 
 class VLLMOfflineLLM(BaseLLM):

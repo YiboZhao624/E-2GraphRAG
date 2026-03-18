@@ -1,0 +1,56 @@
+dataset:
+  dataset_name: bank                              # 可选: InfiniteChoice | InfiniteQALoader | NovelQA
+  dataset_path: ./data/ # 数据集路径，可按需调整
+
+split_method: manual
+
+llm:
+  type: requests                           # 使用 HTTP/requests 后端
+  llm_name: qwen3-235b-a22b                     # 发送给服务端的模型名，占位可改
+  llm_path: null                           # requests 模式下无需本地模型
+  tokenizer_name: /mnt/shared-storage-gpfs2/gpfs2-shared-public/huggingface/hub/models--Qwen--Qwen3-235B-A22B/snapshots/8efa61729e24bd65b1d152b5ab5409052aa80e65
+  llm_device: cuda:0                       # 仅用于日志/缓存命名；requests 模式不实际占用
+  max_new_tokens: 1200
+  temperature: 0.7
+  top_p: 0.9
+  api_url: http://127.0.0.1:8000/v1/chat/completions   # OpenAI 兼容推理服务地址
+  chat_mode: chat                          # chat | completion
+  api_headers:
+    Authorization: Bearer YOUR_API_KEY
+    Content-Type: application/json
+  request_kwargs:
+    timeout: 1200
+
+paths:
+  log_path: ./log/hanlp_request_llm_235b        # 日志目录
+  answer_path: ./answer_manual/hanlp_request_llm_235b_writev2RetandQA  # 答案输出目录
+  cache_path: ./cache_manual/hanlp_request_llm_235b    # 缓存目录
+
+extractor:
+  language: "zh"                 # 抽取器语言
+  method: "HanLP"                # 使用 HanLPExtractor
+  ner_model_path: "./models/ner" # 自定义 NER 模型目录，默认已指向 HanLP Config
+  pos_model_path: "./models/pos" # 自定义 POS 模型目录
+
+cluster:
+  length: 1200    # 每段长度
+  overlap: 0      # 重叠长度（按需调整）
+  merge_num: 5    # 片段合并数量
+  force_Reextract: False  # 是否忽略已有缓存重新抽取
+
+resume:
+  resumeIndex: 0  # 从第几个样本继续
+
+retriever:
+  kwargs:
+    device: cuda:0
+    shortest_path_k: 4
+    debug: True
+    merge_num: 5
+    overlap: 100
+    embedder: /mnt/shared-storage-gpfs2/gpfs2-shared-public/huggingface/hub/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af/
+    tokenizer: /mnt/shared-storage-gpfs2/gpfs2-shared-public/huggingface/hub/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af/
+    max_chunk_setting: 25
+
+rewrite_query_ret: True
+rewrite_query_qa: True

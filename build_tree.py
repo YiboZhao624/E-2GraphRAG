@@ -41,6 +41,8 @@ def summarize_leaf(text: str, llm: BaseLLM, language: str) -> str:
     else:
         prompt = Prompts["summarize_details_zh"].format(content=text)
     res = llm.generate(prompt).text
+    # remove the potential thinking content.
+    res = res.split("</think>")[-1].strip()
     return res
 
 def summarize_summary(text: str, llm: BaseLLM, language: str) -> str:
@@ -52,6 +54,8 @@ def summarize_summary(text: str, llm: BaseLLM, language: str) -> str:
     else:
         prompt = Prompts["summarize_summary_zh"].format(summary=text)
     res = llm.generate(prompt).text
+    # remove the potential thinking content.
+    res = res.split("</think>")[-1].strip()
     return res
 
 def build_tree(

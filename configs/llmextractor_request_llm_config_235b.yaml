@@ -1,0 +1,55 @@
+dataset:
+  dataset_name: bank
+  dataset_path: ./data/
+
+llm:
+  type: requests
+  llm_name: qwen3-235b-a22b
+  llm_path: null
+  tokenizer_name: /mnt/shared-storage-gpfs2/gpfs2-shared-public/huggingface/hub/models--Qwen--Qwen3-235B-A22B/snapshots/8efa61729e24bd65b1d152b5ab5409052aa80e65
+  llm_device: cuda:0
+  max_new_tokens: 1200
+  temperature: 0.7
+  top_p: 0.9
+  api_url: http://127.0.0.1:8000/v1/chat/completions
+  chat_mode: chat
+  api_headers:
+    Authorization: Bearer YOUR_API_KEY
+    Content-Type: application/json
+  request_kwargs:
+    timeout: 120
+  batch_size: 4
+
+paths:
+  log_path: ./log/llm_extractor_235b
+  answer_path: ./answer/llm_extractor_235b_mix
+  cache_path: ./cache/llm_extractor_235b
+
+extractor:
+  language: "zh"
+  method: "LLM"
+  prompt_name: "extract_entities_json"
+
+cluster:
+  length: 1200
+  overlap: 0
+  merge_num: 5
+  force_Reextract: False
+
+resume:
+  resumeIndex: 0
+
+retriever:
+  kwargs:
+    device: cuda:0
+    shortest_path_k: 4
+    debug: True
+    merge_num: 5
+    overlap: 100
+    embedder: /mnt/shared-storage-gpfs2/gpfs2-shared-public/huggingface/hub/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af/
+    tokenizer: /mnt/shared-storage-gpfs2/gpfs2-shared-public/huggingface/hub/models--Qwen--Qwen3-Embedding-8B/snapshots/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af/
+    max_chunk_setting: 25
+
+rewrite_query_ret: False
+rewrite_query_qa: False
+

@@ -5,9 +5,16 @@ dataset:
   # or InfiniteQALoader: ./data/InfiniteBench/longbook_qa_eng.jsonl
 
 llm:
+  type: transformers                     # transformers | vllm_api | vllm_offline | openai
   llm_name: Qwen2.5-7B-Instruct
   llm_path: path/to/your/llm/model  # path to your llm model.
   llm_device: cuda                  # device to run the llm.
+  tokenizer_name: null              # optional, defaults to llm_path
+  max_new_tokens: 1200              # default max_new_tokens for generation
+  temperature: 0.7
+  top_p: 0.9
+  api_base: null                    # required for vllm_api or custom OpenAI-compatible endpoints
+  api_key: null                     # required for OpenAI/vllm_api
 
 paths:
   log_path: ./log             # path to save the log.

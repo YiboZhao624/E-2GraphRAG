@@ -51,17 +51,35 @@ def build_tree_task(args):
         clean_cuda_memory(device_id)
 
 def extract_graph_task(args):
-    text, cache_folder, language, method, force_reextract = args
+    """
+    Args tuple:
+      text, cache_folder, language, extractor_conf(dict), force_reextract(bool), llm_config(dict)
+    """
+    text, cache_folder, language, extractor_conf, force_reextract, llm_config = args
+    method = extractor_conf.get("method")
     if os.path.exists(os.path.join(cache_folder, f"graph_{method}.json")) and not force_reextract:
         return load_cache(cache_folder, method), -1
+    nlp = None
     try:
-        # Load NLP model in subprocess
-        nlp = load_nlp(language, method)
+        extra_kwargs = {}
+        if method == "LLM":
+            extra_kwargs = {
+                "llm_config": llm_config,
+                "prompt_name": extractor_conf.get("prompt_name", "extract_entities_json"),
+            }
+        elif method == "LLMVerifier":
+            extra_kwargs = {
+                "llm_config": llm_config,
+                "graph_prompt_name": extractor_conf.get("graph_prompt_name", "extract_graph_relations_json"),
+            }
+        nlp = load_nlp(language, method, **extra_kwargs)
         logger.info("NLP loaded.")
-        (result, index, count), time_cost = extract_graph(text, cache_folder, nlp, use_cache=not force_reextract, reextract=force_reextract)
+        (result, index, count), time_cost = extract_graph(
+            text, cache_folder, nlp, use_cache=not force_reextract, reextract=force_reextract
+        )
         logger.info(f"extract graph task result type: {type(result)}")
         logger.info(f"extract graph task time cost: {time_cost}, -1 means load from cache.")
         return (result, index, count), time_cost
     finally:
-        # Clean up
-        del nlp 
+        if nlp is not None:
+            del nlp

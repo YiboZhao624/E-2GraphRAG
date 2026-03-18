@@ -5,9 +5,12 @@ import time
 import logging
 import threading
 from itertools import combinations
-from typing import List, Tuple, Literal
+from typing import List, Tuple, Literal, Dict, Any, Optional
+import yaml
 
 import networkx as nx
+from prompt_dict import Prompts
+from llm_providers import create_llm
 
 
 def _get_spacy():
@@ -56,7 +59,7 @@ logger = logging.getLogger(__name__)
 
 def load_nlp(
     language: str = "en",
-    method: Literal["Spacy", "NLTK", "BERT_NER_POS", "HanLP"] = "Spacy",
+    method: Literal["Spacy", "NLTK", "BERT_NER_POS", "HanLP", "LLM", "LLMVerifier"] = "Spacy",
     **kwargs,
 ):
     if method == "Spacy":
@@ -76,6 +79,18 @@ def load_nlp(
             pos_model_path=kwargs.get("pos_model_path", "./models/pos"),
             hanlp_root=kwargs.get("hanlp_root", "./hanlp"),
             require_local=kwargs.get("hanlp_require_local", False),
+        )
+    elif method == "LLM":
+        nlp = LLMExtractor(
+            language=language,
+            llm_config=kwargs.get("llm_config"),
+            prompt_name=kwargs.get("prompt_name", "extract_entities_json"),
+        )
+    elif method == "LLMVerifier":
+        nlp = LLMVerifier(
+            language=language,
+            llm_config=kwargs.get("llm_config"),
+            graph_prompt_name=kwargs.get("graph_prompt_name", "extract_graph_relations_json"),
         )
     return nlp
         
@@ -562,14 +577,6 @@ class HanLPExtractor(Extractor):
             if ner_spans and isinstance(ner_spans[0], list):
                 ner_spans = ner_spans[0]
 
-            # DEBUG: 查看模型输出格式，便于排查单字/空结果
-            print(
-                "[DEBUG] mtl_out keys:", list(mtl_out.keys()),
-                "tok_sample:", tokens[:10],
-                "pos_sample:", pos_tags[:10],
-                "ner_sample:", ner_spans[:5],
-            )
-
             sentence_terms = []
 
             # 先收集 NER 实体
@@ -618,6 +625,222 @@ class HanLPExtractor(Extractor):
             "double_nouns": double_nouns,
             "appearance_count": {t: c for t, c in appearance_count.items() if t in kept_terms},
         }
+
+
+class LLMExtractor(Extractor):
+    """
+    使用大模型直接抽取实体，要求模型按指定 JSON 模板输出实体列表。
+    """
+
+    def __init__(
+        self,
+        language: str = "zh",
+        llm_config: Optional[Dict[str, Any]] = None,
+        prompt_name: str = "extract_entities_json",
+    ):
+        self.llm_config = llm_config or {}
+        self.prompt_name = prompt_name
+        self.prompt_template = Prompts.get(prompt_name, "")
+        if not self.prompt_template:
+            raise ValueError(f"Prompt '{prompt_name}' not found in Prompts.")
+        super().__init__(language)
+        # 保持 self.llm 作为底层大模型实例，便于调用 generate
+        self.llm = self.nlp
+        self.method = "LLM"
+
+    def load_model(self, language):
+        if not self.llm_config:
+            raise ValueError("llm_config is required to initialize LLMExtractor.")
+        return create_llm(self.llm_config)
+
+    def _parse_response(self, raw_text: str) -> Dict[str, Any]:
+        cleaned = raw_text.strip().split("</think>")[-1].strip()
+        if cleaned.startswith("```"):
+            # 兼容 ```json 包裹的输出
+            cleaned = re.sub(r"^```[a-zA-Z]*", "", cleaned)
+            cleaned = cleaned.rsplit("```", 1)[0]
+        try:
+            return json.loads(cleaned)
+        except Exception:
+            try:
+                start = cleaned.find("{")
+                end = cleaned.rfind("}")
+                if start != -1 and end != -1 and end > start:
+                    return json.loads(cleaned[start : end + 1])
+            except Exception as e:
+                logger.error(f"Failed to parse LLM JSON output: {e}, {cleaned}")
+        return {}
+
+    def _generate_and_parse(self, prompt: str, max_retries: int = 2) -> Dict[str, Any]:
+        """LLM 调用带简单重试的解析包装，防止偶发输出格式错误。"""
+        last_err = None
+        for _ in range(max_retries + 1):
+            try:
+                response = self.llm.generate(prompt, max_new_tokens=1024*12).text
+            except Exception as e:
+                last_err = e
+                logger.error(f"LLM generate failed: {e}")
+                continue
+            if not response:
+                continue
+            data = self._parse_response(response)
+            if data:
+                return data
+        if last_err:
+            logger.error(f"LLM generate/parse failed after retries: {last_err}")
+        return {}
+
+    def naive_extract_graph(self, text: str):
+        prompt = self.prompt_template.format(content=text)
+        data = self._generate_and_parse(prompt)
+        entities_raw = data.get("entities") or data.get("nouns") or []
+        nouns: List[str] = []
+        for ent in entities_raw:
+            if isinstance(ent, str):
+                ent_name = ent.strip()
+                if ent_name:
+                    nouns.append(ent_name)
+            elif isinstance(ent, dict):
+                name = ent.get("name") or ent.get("entity") or ent.get("text")
+                if isinstance(name, str) and name.strip():
+                    nouns.append(name.strip())
+        # 去重但保持顺序
+        nouns = list(dict.fromkeys(nouns))
+
+        appearance_count: Dict[str, int] = {}
+        noun_pairs: Dict[Tuple[str, str], int] = {}
+
+        sentences = [s.strip() for s in re.split(r"[。！？!?\.]", text) if s.strip()]
+        for sent in sentences:
+            sentence_terms = []
+            for noun in nouns:
+                if noun and noun in sent:
+                    sentence_terms.append(noun)
+                    appearance_count[noun] = appearance_count.get(noun, 0) + 1
+            unique_terms = sorted(set(sentence_terms))
+            for i in range(len(unique_terms)):
+                for j in range(i + 1, len(unique_terms)):
+                    pair = (unique_terms[i], unique_terms[j])
+                    noun_pairs[pair] = noun_pairs.get(pair, 0) + 1
+
+        return {
+            "nouns": nouns,
+            "cooccurrence": noun_pairs,
+            "double_nouns": {},
+            "appearance_count": appearance_count,
+        }
+
+
+class LLMVerifier(Extractor):
+    """
+    使用大模型一次性输出实体和关系，替代逐对验证。
+    """
+
+    def __init__(
+        self,
+        language: str = "zh",
+        llm_config: Optional[Dict[str, Any]] = None,
+        graph_prompt_name: str = "extract_graph_relations_json",
+    ):
+        self.llm_config = llm_config or {}
+        self.graph_prompt_template = Prompts.get(graph_prompt_name, "")
+        if not self.graph_prompt_template:
+            raise ValueError(f"Prompt '{graph_prompt_name}' not found in Prompts.")
+        super().__init__(language)
+        self.llm = self.nlp
+        self.method = "LLMVerifier"
+
+    def load_model(self, language):
+        if not self.llm_config:
+            raise ValueError("llm_config is required to initialize LLMVerifier.")
+        return create_llm(self.llm_config)
+
+    def _parse_response(self, raw_text: str) -> Dict[str, Any]:
+        cleaned = raw_text.strip().split("</think>")[-1].strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```[a-zA-Z]*", "", cleaned)
+            cleaned = cleaned.rsplit("```", 1)[0]
+        try:
+            return json.loads(cleaned)
+        except Exception:
+            try:
+                start = cleaned.find("{")
+                end = cleaned.rfind("}")
+                if start != -1 and end != -1 and end > start:
+                    return json.loads(cleaned[start : end + 1])
+            except Exception as e:
+                logger.error(f"Failed to parse LLM JSON output: {e}, {cleaned}")
+        return {}
+
+    def _generate_and_parse(self, prompt: str, max_retries: int = 2) -> Dict[str, Any]:
+        """LLM 调用带简单重试的解析包装，防止偶发输出格式错误。"""
+        last_err = None
+        for _ in range(max_retries + 1):
+            try:
+                response = self.llm.generate(prompt).text
+            except Exception as e:
+                last_err = e
+                logger.error(f"LLM generate failed: {e}")
+                continue
+            if not response:
+                continue
+            data = self._parse_response(response)
+            if data:
+                return data
+        if last_err:
+            logger.error(f"LLM generate/parse failed after retries: {last_err}")
+        return {}
+
+    def naive_extract_graph(self, text: str):
+        prompt = self.graph_prompt_template.format(content=text)
+        data = self._generate_and_parse(prompt)
+
+        entities_raw = data.get("entities") or data.get("nodes") or []
+        relations_raw = data.get("relations") or data.get("edges") or []
+
+        nouns: List[str] = []
+        for ent in entities_raw:
+            if isinstance(ent, str):
+                name = ent.strip()
+            elif isinstance(ent, dict):
+                name = (ent.get("name") or ent.get("entity") or ent.get("text") or "").strip()
+            else:
+                name = ""
+            if name:
+                nouns.append(name)
+        nouns = list(dict.fromkeys(nouns))
+
+        appearance_count: Dict[str, int] = {}
+        for noun in nouns:
+            appearance_count[noun] = len(re.findall(re.escape(noun), text))
+
+        noun_pairs: Dict[Tuple[str, str], int] = {}
+        for rel in relations_raw:
+            if isinstance(rel, dict):
+                h = rel.get("head") or rel.get("source") or rel.get("from")
+                t = rel.get("tail") or rel.get("target") or rel.get("to")
+                w = rel.get("weight") or rel.get("count") or rel.get("confidence") or 1
+            elif isinstance(rel, (list, tuple)) and len(rel) >= 2:
+                h, t = rel[0], rel[1]
+                w = rel[2] if len(rel) > 2 else 1
+            else:
+                continue
+            if not isinstance(h, str) or not isinstance(t, str):
+                continue
+            h, t = h.strip(), t.strip()
+            if not h or not t or h == t:
+                continue
+            pair = tuple(sorted([h, t]))
+            noun_pairs[pair] = noun_pairs.get(pair, 0) + (w if isinstance(w, (int, float)) else 1)
+
+        return {
+            "nouns": nouns,
+            "cooccurrence": noun_pairs,  # 表示有边，权重可累加
+            "double_nouns": {},
+            "appearance_count": appearance_count,
+        }
+
+
 
 
 def build_graph(triplets: List[Tuple[str, str, int]]) -> nx.Graph:
@@ -708,38 +931,63 @@ def extract_graph(text:List[str], cache_folder:str, nlp:Extractor, use_cache=Tru
         return (G, index, appearance_count), extract_end_time - extract_start_time
 
 if __name__ == '__main__':
-    bert_extractor = HanLPExtractor(language = "zh")
+    """
+    简易测试：使用 request_llm 配置（hanlp_request_llm_config_32b_rewrite.yaml）调用 LLMExtractor 抽取实体。
+    依赖：本地推理服务需可用；需在配置中填好有效的 Authorization。
+    """
+    text = "客户分为几档"
+    nlp = load_nlp(
+        language="zh",
+        method="HanLP",
+    )
+    result = nlp.naive_extract_graph(text)
+    print(result)
+    raise
+
+    config_path = "./configs/hanlp_request_llm_config_32b_rewrite.yaml"
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.error(f"Failed to load config '{config_path}': {e}")
+        raise
+
+    llm_config = cfg.get("llm", {})
+    extractor_cfg = cfg.get("extractor", {})
+    language = extractor_cfg.get("language", "zh")
 
     sample_text = (
-        """
-        注册登录流程
-1.客户打开APP，判断是否已登录：
-是：进入2，展示【APP借款首页】
-否：展示【APP借款首页】，页面处于未登录状态，点击「立即申请」按钮后进入“ 注册/登录操作”
-2.判断客户是否为闪电贷预授信客户：
-是：点击「立即申请」按钮，进入“闪电贷预授信流程“
-否：进入3
-3.判断客户是否实名：
-是：进入4
-否：展示【APP借款首页】，点击「立即申请」按钮后进入“ 授信流程”
-4.判断客户是否为外部迁入客户：
-是：展示”外部迁入弹窗“，点击取消按钮，关闭弹窗展示【APP借款首页】；点击领取按钮，进入“ 外部迁入流程”
-否：进入5
-5.判断客户是否有额度：
-是：展示【APP借款首页】，页面上方产品卡模块展示客户授信申请审批通过的贷款产品和可借金额，可借金额根据“可借金额计算规则”展示。点击立即申请，客户可以进入“用款流程”申请借款
-否：展示【APP借款首页】，点击「立即申请」按钮后进入“ 授信流程”
-        """
+        "注册登录流程：客户打开APP判断是否已登录，未登录点击立即申请进入注册/登录；"
+        "判断是否闪电贷预授信、是否实名、是否外部迁入、是否有额度等，分别进入对应流程。"
     )
 
-    graph_info = bert_extractor(sample_text)
+    llm_extractor = load_nlp(
+        language=language,
+        method="LLM",
+        llm_config=llm_config,
+        prompt_name="extract_entities_json",
+    )
 
-    import json
-    print("Extracted Information:")
-    print(graph_info)
+    result = llm_extractor.naive_extract_graph(sample_text)
+    print("LLM Extracted Information:")
 
-    print("\nNouns (Entities and Common Nouns):")
-    print(sorted(graph_info['nouns']))
+    def _stringify_cooccurrence(co):
+        return {f"{k[0]}__{k[1]}": v for k, v in co.items()}
 
-    print("\nCo-occurrence Pairs:")
-    for pair, weight in graph_info['cooccurrence'].items():
-        print(f"- {pair}: {weight} time(s)")
+    printable = dict(result)
+    printable["cooccurrence"] = _stringify_cooccurrence(result.get("cooccurrence", {}))
+    print(json.dumps(printable, ensure_ascii=False, indent=2))
+
+    # --- LLMVerifier 测试：一次性实体+关系 ---
+    llm_verifier = load_nlp(
+        language=language,
+        method="LLMVerifier",
+        llm_config=llm_config,
+        graph_prompt_name="extract_graph_relations_json",
+    )
+
+    verifier_result = llm_verifier.naive_extract_graph(sample_text)
+    print("\nLLMVerifier Extracted Information:")
+    printable_v = dict(verifier_result)
+    printable_v["cooccurrence"] = _stringify_cooccurrence(verifier_result.get("cooccurrence", {}))
+    print(json.dumps(printable_v, ensure_ascii=False, indent=2))

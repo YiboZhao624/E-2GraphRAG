@@ -23,7 +23,7 @@ logger = setup_logging()
 from typing import List
 from transformers import AutoTokenizer
 from rouge import Rouge
-from dataloader import NovelQALoader, InfiniteChoiceLoader, InfiniteQALoader
+from dataloader import NovelQALoader, InfiniteChoiceLoader, InfiniteQALoader, bank_loader
 import json,os
 from extract_graph import build_graph
 
@@ -64,6 +64,8 @@ def load_dataset(dataset_name:str, dataset_path:str):
         return InfiniteChoiceLoader(dataset_path)
     elif dataset_name == "InfiniteQALoader":
         return InfiniteQALoader(dataset_path)
+    elif dataset_name == "bank":
+        return bank_loader(dataset_path)
     else:
         raise ValueError("Invalid dataset")
 
